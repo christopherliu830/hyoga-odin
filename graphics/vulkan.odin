@@ -16,8 +16,41 @@ debug_messenger_callback :: proc "system" (
 ) -> b32 {
         context = runtime.default_context()
 
-        fmt.printf("%s: %s:\n", messageSeverity, messageTypes)
+        fmt.printf("%v: %v:\n", messageSeverity, messageTypes)
+        fmt.printf("\tmessageIDName   = <%v>\n", pCallbackData.pMessageIdName)
+        fmt.printf("\tmessageIDNumber = <%v>\n", pCallbackData.messageIdNumber)
+        fmt.printf("\tmessage         = <%v>\n", pCallbackData.pMessage)
+
+        if 0 < pCallbackData.queueLabelCount {
+                fmt.printf("\tQueue Labels: \n")
+                for i in 0..<pCallbackData.queueLabelCount {
+                        fmt.printf("\t\tlabelName = <%v>\n", pCallbackData.pQueueLabels[i].pLabelName)
+                }
+        }
+        if 0 < pCallbackData.cmdBufLabelCount {
+                fmt.printf("\tCommandBuffer Labels: \n")
+                for i in 0..<pCallbackData.cmdBufLabelCount {
+                        fmt.printf("\t\tlabelName = <%v>\n", pCallbackData.pCmdBufLabels[i].pLabelName)
+                }
+        }
+        if 0 < pCallbackData.objectCount {
+                fmt.printf("Objects:\n")
+                for i in 0..<pCallbackData.objectCount {
+                        fmt.printf("\t\tObject %d\n", pCallbackData.pObjects[i].objectType)
+                        fmt.printf("\t\t\tobjectType   = %s\n", pCallbackData.pObjects[i].objectType)
+                        fmt.printf("\t\t\tobjectHandle = %d\n", pCallbackData.pObjects[i].objectHandle)
+                        if pCallbackData.pObjects[i].pObjectName != nil {
+                                fmt.printf("\t\t\tobjectName   = <%v>\n", pCallbackData.pObjects[i].pObjectName)
+                        }
+                }
+        }
         return true
+}
+
+error_check :: proc(result: vk.Result) {
+        if (result != vk.Result.SUCCESS) {
+                fmt.panicf("VULKAN: %s\n", result)
+        }
 }
 
 init :: proc() -> (ctx: Context) {
@@ -40,9 +73,7 @@ init :: proc() -> (ctx: Context) {
         // Create Instance
         result: vk.Result
         instance, result = init_vulkan_instance(&debug_utils_info)
-        if (result != vk.Result.SUCCESS) {
-                fmt.panicf("VULKAN: %s\n", result)
-        }
+        error_check(result)
 
         // Load the rest of Vulkan's functions.
         vk.load_proc_addresses(instance)
@@ -50,11 +81,16 @@ init :: proc() -> (ctx: Context) {
         init_debug_utils_messenger(&ctx, &debug_utils_info)
 
         init_physical_device_and_surface(&ctx)
+        error_check(result)
+
+        init_logical_device(&ctx);
+        error_check(result)
 
         return ctx
 }
 
 cleanup :: proc(using ctx: ^Context) {
+        vk.DestroySurfaceKHR(instance, surface, nil)
         vk.DestroyDebugUtilsMessengerEXT(instance, debug_messenger, nil)
         vk.DestroyInstance(nil, nil)
         cleanup_window(ctx)
@@ -135,7 +171,95 @@ init_physical_device_and_surface :: proc(using ctx: ^Context) -> vk.Result {
         count: u32
         vk.EnumeratePhysicalDevices(instance, &count, nil) or_return
         devices := make([]vk.PhysicalDevice, count)
+        defer delete(devices)
         vk.EnumeratePhysicalDevices(instance, &count, raw_data(devices)) or_return
+
+        fmt.printf("Devices: ")
+        for gpu in devices {
+                // Properties
+                properties: vk.PhysicalDeviceProperties
+                vk.GetPhysicalDeviceProperties(gpu, &properties)
+
+                if surface != 0 {
+                        vk.DestroySurfaceKHR(instance, surface, nil)
+                }
+
+                create_surface(ctx)
+
+                // Locate a device with the GRAPHICS queue flag
+                // as well as surface support.
+                vk.GetPhysicalDeviceQueueFamilyProperties(gpu, &count, nil)
+                queue_family_properties:= make([]vk.QueueFamilyProperties, count)
+                defer delete(queue_family_properties)
+                vk.GetPhysicalDeviceQueueFamilyProperties(gpu, &count, raw_data(queue_family_properties))
+                for queue, index in queue_family_properties {
+                        supported: b32
+                        vk.GetPhysicalDeviceSurfaceSupportKHR(gpu, u32(index), surface, &supported) or_return
+
+                        if supported && .GRAPHICS in queue.queueFlags {
+                                queue_indices[.Graphics] = index
+                                break;
+                        }
+                }
+                fmt.printf("Enabled GPU: %s\n", cstring(raw_data(&properties.deviceName)))
+                physical_device = gpu
+                break
+        }
+        return vk.Result.SUCCESS
+}
+
+init_logical_device :: proc(using ctx: ^Context) -> vk.Result {
+        count: u32
+        vk.EnumerateDeviceExtensionProperties(physical_device, nil, &count, nil) or_return
+        extensions := make([]vk.ExtensionProperties, count)
+        defer delete(extensions)
+        vk.EnumerateDeviceExtensionProperties(physical_device, nil, &count, raw_data(extensions)) or_return
+
+        required_extensions := make([dynamic]cstring, 0)
+        defer delete(required_extensions)
+        append(&required_extensions, vk.KHR_SWAPCHAIN_EXTENSION_NAME)
+
+        // If portability subset is found in device extensions,
+        // it must be enabled.
+        required_found := false
+        portability_found := false
+        for extension in extensions {
+                e := extension
+                switch(cstring(raw_data(&e.extensionName))) {
+                        case vk.KHR_SWAPCHAIN_EXTENSION_NAME:
+                                required_found = true
+                        case "VK_KHR_portability_subset":
+                                portability_found = true
+
+                }
+        }
+        if !required_found {
+                fmt.panicf("Swapchain extension not found!")
+        }
+        if portability_found {
+                append(&required_extensions, "VK_KHR_portability_subset")
+        }
+
+        queuePriority: f32 = 1
+        queue_create_info : vk.DeviceQueueCreateInfo
+        queue_create_info.sType = vk.StructureType.DEVICE_QUEUE_CREATE_INFO
+        queue_create_info.queueFamilyIndex = u32(queue_indices[.Graphics])
+        queue_create_info.queueCount = 1
+        queue_create_info.pQueuePriorities = &queuePriority
+
+        shader_features: vk.PhysicalDeviceShaderDrawParametersFeatures
+        shader_features.sType = vk.StructureType.PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES
+        shader_features.shaderDrawParameters = true 
+
+        device_create_info: vk.DeviceCreateInfo
+        device_create_info.sType = vk.StructureType.DEVICE_CREATE_INFO
+        device_create_info.enabledExtensionCount = u32(len(required_extensions))
+        device_create_info.ppEnabledExtensionNames = raw_data(required_extensions)
+        device_create_info.queueCreateInfoCount = 1
+        device_create_info.pQueueCreateInfos = &queue_create_info
+        device_create_info.pNext = &shader_features
+
+        vk.CreateDevice(physical_device, &device_create_info, nil, &device) or_return
 
         return vk.Result.SUCCESS
 }

@@ -36,6 +36,10 @@ create_window :: proc(using ctx: ^Context) {
         }
 }
 
+create_surface :: proc(using ctx: ^Context) {
+        glfw.CreateWindowSurface(instance, window, nil, &surface)
+}
+
 window_should_close :: proc(using ctx: ^Context) -> bool {
         return bool(glfw.WindowShouldClose(window))
 }
