@@ -7,6 +7,8 @@ MAX_FRAMES_IN_FLIGHT :: 2
 
 Context :: struct
 {
+	debug_messenger: vk.DebugUtilsMessengerEXT,
+
 	instance: vk.Instance,
   	device:   vk.Device,
 	physical_device: vk.PhysicalDevice,

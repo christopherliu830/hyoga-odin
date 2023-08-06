@@ -39,3 +39,8 @@ create_window :: proc(using ctx: ^Context) {
 window_should_close :: proc(using ctx: ^Context) -> bool {
         return bool(glfw.WindowShouldClose(window))
 }
+
+cleanup_window :: proc(using ctx: ^Context) {
+        glfw.DestroyWindow(window)
+        glfw.Terminate()
+}
