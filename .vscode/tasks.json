@@ -1,0 +1,15 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build Odin",
+            "type": "shell",
+            "command": "odin",
+            "args": ["build", ".", "-debug", "-out=./build/odenpi.exe"],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        }
+    ]
+}

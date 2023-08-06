@@ -1,0 +1,17 @@
+{
+    "[odin]": {
+        "editor.tabSize": 8
+    },
+    "terminal.integrated.env.windows": {
+        "MSYSTEM": "UCRT64",
+        "CHERE_INVOKING": "1"
+    },
+    "terminal.integrated.profiles.windows": {
+        "ucrt64": {
+            "path": "C:\\msys64\\usr\\bin\\bash.exe",
+            "args": ["--login", "-i"],
+            "icon": "terminal-bash"
+        },
+    },
+    "terminal.integrated.defaultProfile.windows": "ucrt64"
+}
