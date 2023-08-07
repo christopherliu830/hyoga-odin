@@ -12,7 +12,7 @@ Context :: struct
 	instance: vk.Instance,
   	device:   vk.Device,
 	physical_device: vk.PhysicalDevice,
-	swap_chain: Swapchain,
+	swapchain: Swapchain,
 	pipeline: Pipeline,
 	queue_indices:   [QueueFamily]int,
 	queues:   [QueueFamily]vk.Queue,
@@ -48,28 +48,8 @@ Pipeline :: struct
 
 QueueFamily :: enum
 {
-	Graphics,
-	Present,
-}
-
-Swapchain :: struct
-{
-	handle: vk.SwapchainKHR,
-	images: []vk.Image,
-	image_views: []vk.ImageView,
-	format: vk.SurfaceFormatKHR,
-	extent: vk.Extent2D,
-	present_mode: vk.PresentModeKHR,
-	image_count: u32,
-	support: SwapChainDetails,
-	framebuffers: []vk.Framebuffer,
-}
-
-SwapChainDetails :: struct
-{
-	capabilities: vk.SurfaceCapabilitiesKHR,
-	formats: []vk.SurfaceFormatKHR,
-	present_modes: []vk.PresentModeKHR,
+	GRAPHICS,
+	PRESENT,
 }
 
 Vertex :: struct

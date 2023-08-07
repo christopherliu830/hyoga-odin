@@ -48,3 +48,10 @@ cleanup_window :: proc(using ctx: ^Context) {
         glfw.DestroyWindow(window)
         glfw.Terminate()
 }
+
+get_frame_buffer_size :: proc(using ctx: ^Context) -> (w, h: u32) {
+        x, y := glfw.GetFramebufferSize(window)
+        w = cast(u32)x
+        h = cast(u32)y
+        return w, h
+}

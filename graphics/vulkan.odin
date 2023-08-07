@@ -48,7 +48,7 @@ debug_messenger_callback :: proc "system" (
 }
 
 error_check :: proc(result: vk.Result) {
-        if (result != vk.Result.SUCCESS) {
+        if (result != .SUCCESS) {
                 fmt.panicf("VULKAN: %s\n", result)
         }
 }
@@ -80,16 +80,20 @@ init :: proc() -> (ctx: Context) {
 
         init_debug_utils_messenger(&ctx, &debug_utils_info)
 
-        init_physical_device_and_surface(&ctx)
+        physical_device, result = init_physical_device_and_surface(&ctx)
         error_check(result)
 
-        init_logical_device(&ctx);
+        result = init_logical_device(&ctx);
+        error_check(result)
+
+        swapchain, result = create_swapchain(&ctx);
         error_check(result)
 
         return ctx
 }
 
 cleanup :: proc(using ctx: ^Context) {
+        cleanup_swapchain(ctx)
         vk.DestroySurfaceKHR(instance, surface, nil)
         vk.DestroyDebugUtilsMessengerEXT(instance, debug_messenger, nil)
         vk.DestroyInstance(nil, nil)
@@ -98,11 +102,12 @@ cleanup :: proc(using ctx: ^Context) {
 
 init_vulkan_instance :: proc(debug_create_info: ^vk.DebugUtilsMessengerCreateInfoEXT) ->
 (instance: vk.Instance, result: vk.Result) {
-        application_info: vk.ApplicationInfo
-        application_info.sType = vk.StructureType.APPLICATION_INFO
-        application_info.pApplicationName = "Untitled"
-        application_info.pEngineName = "Odinpi"
-        application_info.apiVersion = vk.API_VERSION_1_3
+        application_info: vk.ApplicationInfo = {
+                sType = vk.StructureType.APPLICATION_INFO,
+                pApplicationName = "Untitled",
+                pEngineName = "Odinpi",
+                apiVersion = vk.API_VERSION_1_3,
+        }
 
         // Available Extensions
 	count: u32
@@ -140,15 +145,16 @@ init_vulkan_instance :: proc(debug_create_info: ^vk.DebugUtilsMessengerCreateInf
         fmt.print("Enabled Layers: ")
         for layer in layers do fmt.printf("%s ", layer); fmt.println()
 
-        instance_create_info: vk.InstanceCreateInfo 
-        instance_create_info.sType = vk.StructureType.INSTANCE_CREATE_INFO
-        instance_create_info.flags = nil
-        instance_create_info.enabledExtensionCount = u32(len(required_extensions))
-        instance_create_info.ppEnabledExtensionNames = raw_data(required_extensions)
-        instance_create_info.enabledLayerCount = u32(len(layers))
-        instance_create_info.ppEnabledLayerNames = raw_data(layers)
-        instance_create_info.pApplicationInfo = &application_info
-        instance_create_info.pNext = debug_create_info
+        instance_create_info: vk.InstanceCreateInfo = {
+                sType = vk.StructureType.INSTANCE_CREATE_INFO,
+                flags = nil,
+                enabledExtensionCount = u32(len(required_extensions)),
+                ppEnabledExtensionNames = raw_data(required_extensions),
+                enabledLayerCount = u32(len(layers)),
+                ppEnabledLayerNames = raw_data(layers),
+                pApplicationInfo = &application_info,
+                pNext = debug_create_info,
+        }
 
         vk.CreateInstance(&instance_create_info, nil, &instance) or_return
 
@@ -156,25 +162,26 @@ init_vulkan_instance :: proc(debug_create_info: ^vk.DebugUtilsMessengerCreateInf
 }
 
 debug_utils_messenger_create_info :: proc() -> (debug_utils: vk.DebugUtilsMessengerCreateInfoEXT) {
-        debug_utils.sType = vk.StructureType.DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT
-        debug_utils.messageSeverity = vk.DebugUtilsMessageSeverityFlagsEXT { .WARNING, .ERROR }
-        debug_utils.messageType = vk.DebugUtilsMessageTypeFlagsEXT { .GENERAL, .PERFORMANCE, .VALIDATION }
-        debug_utils.pfnUserCallback = debug_messenger_callback
-        return debug_utils
+        return {
+                sType = vk.StructureType.DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+                messageSeverity = vk.DebugUtilsMessageSeverityFlagsEXT { .WARNING, .ERROR },
+                messageType = vk.DebugUtilsMessageTypeFlagsEXT { .GENERAL, .PERFORMANCE, .VALIDATION },
+                pfnUserCallback = debug_messenger_callback,
+        }
 }
 
 init_debug_utils_messenger :: proc(using ctx: ^Context, debug_utils: ^vk.DebugUtilsMessengerCreateInfoEXT) {
         result := vk.CreateDebugUtilsMessengerEXT(instance, debug_utils, nil, &debug_messenger)
 }
 
-init_physical_device_and_surface :: proc(using ctx: ^Context) -> vk.Result {
+init_physical_device_and_surface :: proc(using ctx: ^Context) ->
+(pd: vk.PhysicalDevice, result: vk.Result) {
         count: u32
         vk.EnumeratePhysicalDevices(instance, &count, nil) or_return
         devices := make([]vk.PhysicalDevice, count)
         defer delete(devices)
         vk.EnumeratePhysicalDevices(instance, &count, raw_data(devices)) or_return
 
-        fmt.printf("Devices: ")
         for gpu in devices {
                 // Properties
                 properties: vk.PhysicalDeviceProperties
@@ -189,7 +196,7 @@ init_physical_device_and_surface :: proc(using ctx: ^Context) -> vk.Result {
                 // Locate a device with the GRAPHICS queue flag
                 // as well as surface support.
                 vk.GetPhysicalDeviceQueueFamilyProperties(gpu, &count, nil)
-                queue_family_properties:= make([]vk.QueueFamilyProperties, count)
+                queue_family_properties := make([]vk.QueueFamilyProperties, count)
                 defer delete(queue_family_properties)
                 vk.GetPhysicalDeviceQueueFamilyProperties(gpu, &count, raw_data(queue_family_properties))
                 for queue, index in queue_family_properties {
@@ -197,15 +204,15 @@ init_physical_device_and_surface :: proc(using ctx: ^Context) -> vk.Result {
                         vk.GetPhysicalDeviceSurfaceSupportKHR(gpu, u32(index), surface, &supported) or_return
 
                         if supported && .GRAPHICS in queue.queueFlags {
-                                queue_indices[.Graphics] = index
+                                queue_indices[.GRAPHICS] = index
                                 break;
                         }
                 }
                 fmt.printf("Enabled GPU: %s\n", cstring(raw_data(&properties.deviceName)))
-                physical_device = gpu
+                pd = gpu
                 break
         }
-        return vk.Result.SUCCESS
+        return pd, .SUCCESS
 }
 
 init_logical_device :: proc(using ctx: ^Context) -> vk.Result {
@@ -215,51 +222,64 @@ init_logical_device :: proc(using ctx: ^Context) -> vk.Result {
         defer delete(extensions)
         vk.EnumerateDeviceExtensionProperties(physical_device, nil, &count, raw_data(extensions)) or_return
 
-        required_extensions := make([dynamic]cstring, 0)
+        required_extensions := make([dynamic]cstring, 0, 2)
         defer delete(required_extensions)
-        append(&required_extensions, vk.KHR_SWAPCHAIN_EXTENSION_NAME)
+
 
         // If portability subset is found in device extensions,
         // it must be enabled.
-        required_found := false
         portability_found := false
         for extension in extensions {
                 e := extension
                 switch(cstring(raw_data(&e.extensionName))) {
-                        case vk.KHR_SWAPCHAIN_EXTENSION_NAME:
-                                required_found = true
                         case "VK_KHR_portability_subset":
                                 portability_found = true
+                                break
 
                 }
         }
-        if !required_found {
-                fmt.panicf("Swapchain extension not found!")
-        }
+
         if portability_found {
                 append(&required_extensions, "VK_KHR_portability_subset")
+        } 
+
+        if swapchain_is_supported(physical_device) {
+                append(&required_extensions, vk.KHR_SWAPCHAIN_EXTENSION_NAME)
+        } else {
+                fmt.panicf("Swapchain is not supported!\n")
         }
 
+        // Unused
         queuePriority: f32 = 1
-        queue_create_info : vk.DeviceQueueCreateInfo
-        queue_create_info.sType = vk.StructureType.DEVICE_QUEUE_CREATE_INFO
-        queue_create_info.queueFamilyIndex = u32(queue_indices[.Graphics])
-        queue_create_info.queueCount = 1
-        queue_create_info.pQueuePriorities = &queuePriority
 
-        shader_features: vk.PhysicalDeviceShaderDrawParametersFeatures
-        shader_features.sType = vk.StructureType.PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES
-        shader_features.shaderDrawParameters = true 
+        queue_create_info : vk.DeviceQueueCreateInfo = {
+                sType = vk.StructureType.DEVICE_QUEUE_CREATE_INFO,
+                queueFamilyIndex = u32(queue_indices[.GRAPHICS]),
+                queueCount = 1,
+                pQueuePriorities = &queuePriority,
+        }
 
-        device_create_info: vk.DeviceCreateInfo
-        device_create_info.sType = vk.StructureType.DEVICE_CREATE_INFO
-        device_create_info.enabledExtensionCount = u32(len(required_extensions))
-        device_create_info.ppEnabledExtensionNames = raw_data(required_extensions)
-        device_create_info.queueCreateInfoCount = 1
-        device_create_info.pQueueCreateInfos = &queue_create_info
-        device_create_info.pNext = &shader_features
+        shader_features: vk.PhysicalDeviceShaderDrawParametersFeatures = {
+                sType = .PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES,
+                shaderDrawParameters = true,
+        }
 
+        device_create_info: vk.DeviceCreateInfo = {
+                sType = .DEVICE_CREATE_INFO,
+                enabledExtensionCount = u32(len(required_extensions)),
+                ppEnabledExtensionNames = raw_data(required_extensions),
+                queueCreateInfoCount = 1,
+                pQueueCreateInfos = &queue_create_info,
+                pNext = &shader_features,
+        }
         vk.CreateDevice(physical_device, &device_create_info, nil, &device) or_return
 
-        return vk.Result.SUCCESS
+        return .SUCCESS
 }
+
+init_allocator :: proc(using ctx: ^Context) -> vk.Result {
+        /* To be implemented */
+        return .SUCCESS
+}
+
+
