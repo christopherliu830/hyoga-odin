@@ -140,21 +140,10 @@ update :: proc(using ctx: ^Context) -> bool {
  * @brief Acquires an image from the swapchain.
  */
 acquire_image :: proc(using ctx: ^Context, image: ^u32) -> vk.Result {
-        sem: vk.Semaphore
-        if len(semaphore_pool) == 0 {
-                create_info: vk.SemaphoreCreateInfo = {
-                        sType = .SEMAPHORE_CREATE_INFO,
-                }
-                vk.CreateSemaphore(device, &create_info, nil, &sem)
+        signaled_semaphore := perframes[image^].image_available
 
-                append(&semaphore_pool, sem)
-        } else {
-                sem = pop(&semaphore_pool)
-        }
-
-        result := vk.AcquireNextImageKHR(device, swapchain.handle, max(u64), sem, 0, image)
+        result := vk.AcquireNextImageKHR(device, swapchain.handle, max(u64), perframes[image^].image_available, 0, image)
         if (result != .SUCCESS && result != .SUBOPTIMAL_KHR) {
-                append(&semaphore_pool, sem)
                 return result
         }
 
@@ -166,6 +155,7 @@ acquire_image :: proc(using ctx: ^Context, image: ^u32) -> vk.Result {
         // waiting for all GPU work to complete before this returns.
         // Normally, this doesn't really block at all,
         // since we're waiting for old frames to have been completed, but just in case.
+
         if perframes[image^].in_flight_fence != 0 {
                 fences := []vk.Fence{ perframes[image^].in_flight_fence }
                 vk.WaitForFences(device, 1, raw_data(fences), true, max(u64)) or_return
@@ -176,13 +166,9 @@ acquire_image :: proc(using ctx: ^Context, image: ^u32) -> vk.Result {
                 vk.ResetCommandPool(device, perframes[image^].command_pool, {}) or_return
         }
 
-        oldSemaphore := perframes[image^].image_available
-        if (oldSemaphore != 0) do append(&semaphore_pool, oldSemaphore)
-
-        perframes[image^].image_available = sem
+        perframes[image^].image_available = signaled_semaphore
 
         return .SUCCESS
-
 }
 
 /**
@@ -240,11 +226,6 @@ draw :: proc(using ctx: ^Context, index: u32) -> vk.Result {
         vk.EndCommandBuffer(cmd) or_return
 
         wait_stage: vk.PipelineStageFlags = { .COLOR_ATTACHMENT_OUTPUT }
-
-        if perframes[index].render_finished == 0 {
-                sem_info: vk.SemaphoreCreateInfo = { sType = .SEMAPHORE_CREATE_INFO }
-                vk.CreateSemaphore(device, &sem_info, nil, &perframes[index].render_finished)
-        }
 
         submit_info: vk.SubmitInfo = {
                 sType = .SUBMIT_INFO,
@@ -482,11 +463,14 @@ init_allocator :: proc(using ctx: ^Context) -> vk.Result {
 
 init_perframes :: proc(using ctx: ^Context) -> vk.Result {
         perframes = make([]Perframe, len(ctx.swapchain.images))
-        semaphore_pool = make([dynamic]vk.Semaphore)
 
         for _, i in perframes {
                 p := &perframes[i]
                 p.queue_index = uint(i)
+
+                create_info: vk.SemaphoreCreateInfo = { sType = .SEMAPHORE_CREATE_INFO }
+                vk.CreateSemaphore(device, &create_info, nil, &perframes[i].image_available)
+                vk.CreateSemaphore(device, &create_info, nil, &perframes[i].render_finished)
 
                 fence_info : vk.FenceCreateInfo = {
                         sType = .FENCE_CREATE_INFO,
@@ -518,9 +502,6 @@ init_perframes :: proc(using ctx: ^Context) -> vk.Result {
 }
 
 cleanup_perframes :: proc(using ctx: ^Context) {
-        for sem, i in semaphore_pool do vk.DestroySemaphore(device, sem, nil)
-        delete(semaphore_pool)
-
         for perframe in perframes {
                 vk.DestroyCommandPool(device, perframe.command_pool, nil)
                 vk.DestroyFence(device, perframe.in_flight_fence, nil)

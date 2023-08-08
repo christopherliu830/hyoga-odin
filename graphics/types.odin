@@ -25,7 +25,6 @@ Context :: struct
 	framebuffer_resized: bool,
 
 	perframes: []Perframe,
-	semaphore_pool: [dynamic]vk.Semaphore,
 }
 
 Perframe :: struct {
