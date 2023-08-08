@@ -25,16 +25,6 @@ Swapchain :: struct
 	framebuffers: []vk.Framebuffer,
 }
 
-Perframe :: struct {
-        device: vk.Device,
-        queue_submit_fence: vk.Fence,
-        primary_command_buffer: vk.CommandBuffer,
-        primary_command_pool: vk.CommandPool,
-
-        swapchain_acquire: vk.Semaphore,
-        swapchain_release: vk.Semaphore,
-}
-
 SwapChainDetails :: struct
 {
 	capabilities: vk.SurfaceCapabilitiesKHR,
@@ -64,8 +54,8 @@ swapchain_is_supported :: proc(device: vk.PhysicalDevice) -> (bool) {
 /**
 * Create a swapchain.
 */
-create_swapchain :: proc(using ctx: ^Context) -> (sc: Swapchain, result: vk.Result) {
-        using sc
+init_swapchain :: proc(using ctx: ^Context) -> vk.Result {
+        using ctx.swapchain
 
         vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface, &support.capabilities) or_return
 
@@ -78,8 +68,8 @@ create_swapchain :: proc(using ctx: ^Context) -> (sc: Swapchain, result: vk.Resu
 
         // If there is no preferred format, pick whatever
         if len(formats) == 1 && formats[0].format == .UNDEFINED {
-                sc.format = formats[0]
-                sc.format.format = .B8G8R8A8_UNORM
+                swapchain.format = formats[0]
+                swapchain.format.format = .B8G8R8A8_UNORM
         }
 
         assert(len(formats) > 0)
@@ -174,7 +164,7 @@ create_swapchain :: proc(using ctx: ^Context) -> (sc: Swapchain, result: vk.Resu
                 vk.CreateImageView(device, &image_view_create_info, nil, &(image_views[i])) or_return
         }
 
-        return sc, .SUCCESS
+        return .SUCCESS
 }
 
 /**
@@ -182,11 +172,50 @@ create_swapchain :: proc(using ctx: ^Context) -> (sc: Swapchain, result: vk.Resu
 */
 
 cleanup_swapchain :: proc(using ctx: ^Context) {
+        cleanup_swapchain_framebuffers(ctx)
+
         for image_view in swapchain.image_views {
                 vk.DestroyImageView(device, image_view, nil)
         }
 
         vk.DestroySwapchainKHR(device, swapchain.handle, nil)
+
+        delete(swapchain.image_views)
+        delete(swapchain.images)
+}
+
+init_swapchain_framebuffers :: proc(using ctx: ^Context) -> vk.Result {
+        using ctx.swapchain
+
+        framebuffers = make([]vk.Framebuffer, len(image_views)) 
+
+        for i in 0..<len(image_views) {
+                attachments: []vk.ImageView = { image_views[i] }
+
+                framebuffer_create_info: vk.FramebufferCreateInfo = {
+                        sType = .FRAMEBUFFER_CREATE_INFO,
+                        renderPass = ctx.pipeline.render_pass,
+                        attachmentCount = 1,
+                        pAttachments = raw_data(attachments),
+                        width = extent.width,
+                        height = extent.height,
+                        layers = 1,
+                }
+
+                vk.CreateFramebuffer(device, &framebuffer_create_info, nil, &framebuffers[i]) or_return
+        }
+
+        return .SUCCESS
+}
+
+cleanup_swapchain_framebuffers :: proc(using ctx: ^Context) {
+        vk.QueueWaitIdle(queues[.GRAPHICS])
+
+        for framebuffer in swapchain.framebuffers {
+                vk.DestroyFramebuffer(device, framebuffer, nil)
+        }
+
+        delete(swapchain.framebuffers)
 }
 
 /**

@@ -18,17 +18,24 @@ Context :: struct
 	queues:   [QueueFamily]vk.Queue,
 	surface:  vk.SurfaceKHR,
 	window:   glfw.WindowHandle,
-	command_pool: vk.CommandPool,
-	command_buffers: [MAX_FRAMES_IN_FLIGHT]vk.CommandBuffer,
 	vertex_buffer: Buffer,
 	index_buffer: Buffer,
 	
-	image_available: [MAX_FRAMES_IN_FLIGHT]vk.Semaphore,
-	render_finished: [MAX_FRAMES_IN_FLIGHT]vk.Semaphore,
-	in_flight: [MAX_FRAMES_IN_FLIGHT]vk.Fence,
-	
 	curr_frame: u32,
 	framebuffer_resized: bool,
+
+	perframes: []Perframe,
+	semaphore_pool: [dynamic]vk.Semaphore,
+}
+
+Perframe :: struct {
+	device: vk.Device,
+	queue_index: uint,
+	in_flight_fence: vk.Fence,
+	command_pool : vk.CommandPool,
+	command_buffer: vk.CommandBuffer,
+	image_available: vk.Semaphore,
+	render_finished: vk.Semaphore,
 }
 
 Buffer :: struct
@@ -37,13 +44,6 @@ Buffer :: struct
 	memory: vk.DeviceMemory,
 	length: int,
 	size:   vk.DeviceSize,
-}
-
-Pipeline :: struct
-{
-	handle: vk.Pipeline,
-	render_pass: vk.RenderPass,
-	layout: vk.PipelineLayout,
 }
 
 QueueFamily :: enum

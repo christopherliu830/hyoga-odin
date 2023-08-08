@@ -10,5 +10,6 @@ main :: proc () {
 
         for !graphics.window_should_close(&ctx) {
                 glfw.PollEvents()
+                graphics.update(&ctx)
         }
 }
