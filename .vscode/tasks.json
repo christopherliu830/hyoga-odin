@@ -5,7 +5,7 @@
             "label": "Build Odin",
             "type": "shell",
             "command": "odin",
-            "args": ["build", ".", "-debug", "-out=./build/odenpi.exe"],
+            "args": ["build", "src", "-debug", "-out=./build/odenpi.exe"],
             "group": {
                 "kind": "build",
                 "isDefault": true

@@ -10,11 +10,10 @@ import "vendor:glfw"
 import vk "vendor:vulkan"
 
 debug_messenger_callback :: proc "system" (
-        messageSeverity: vk.DebugUtilsMessageSeverityFlagsEXT,
-        messageTypes: vk.DebugUtilsMessageTypeFlagsEXT,
-        pCallbackData: ^vk.DebugUtilsMessengerCallbackDataEXT,
-        pUserData: rawptr \
-) -> b32 {
+messageSeverity: vk.DebugUtilsMessageSeverityFlagsEXT,
+messageTypes: vk.DebugUtilsMessageTypeFlagsEXT,
+pCallbackData: ^vk.DebugUtilsMessengerCallbackDataEXT,
+pUserData: rawptr) -> b32 {
         context = runtime.default_context()
 
         fmt.printf("%v: %v:\n", messageSeverity, messageTypes)
@@ -136,9 +135,6 @@ update :: proc(using ctx: ^Context) -> bool {
         return result != .SUCCESS
 }
 
-/**
- * @brief Acquires an image from the swapchain.
- */
 acquire_image :: proc(using ctx: ^Context, image: ^u32) -> vk.Result {
         signaled_semaphore := perframes[image^].image_available
 
@@ -171,11 +167,6 @@ acquire_image :: proc(using ctx: ^Context, image: ^u32) -> vk.Result {
         return .SUCCESS
 }
 
-/**
- * @brief Renders a triangle to the specified swapchain image.
- * @param context A Vulkan context set up for rendering.
- * @param index The swapchain index for the image being rendered.
- */
 draw :: proc(using ctx: ^Context, index: u32) -> vk.Result {
 
         cmd := perframes[index].command_buffer
@@ -242,12 +233,6 @@ draw :: proc(using ctx: ^Context, index: u32) -> vk.Result {
         return .SUCCESS
 }
 
-/**
- * @brief Presents an image to the swapchain.
- * @param context The Vulkan context, with a swapchain and per-frame resources already set up.
- * @param index The swapchain index previously obtained from @ref acquire_next_image.
- * @returns Vulkan result code
- */
 present_image :: proc(using ctx: ^Context, index: u32) -> vk.Result {
         i := index
 
@@ -471,11 +456,7 @@ init_perframes :: proc(using ctx: ^Context) -> vk.Result {
                 vk.CreateSemaphore(device, &create_info, nil, &perframes[i].image_available)
                 vk.CreateSemaphore(device, &create_info, nil, &perframes[i].render_finished)
 
-                fence_info : vk.FenceCreateInfo = {
-                        sType = .FENCE_CREATE_INFO,
-                        flags = { .SIGNALED },
-                }
-
+                fence_info : vk.FenceCreateInfo = { .FENCE_CREATE_INFO, nil, { .SIGNALED } }
                 vk.CreateFence(device, &fence_info, nil, &p.in_flight_fence) or_return
 
                 command_pool_create_info: vk.CommandPoolCreateInfo = {
@@ -533,14 +514,4 @@ resize :: proc(using ctx: ^Context) -> bool {
         init_swapchain_framebuffers(ctx)
 
         return true
-}
-
-get_vertex_binding_description :: proc() ->
-(binding_description: vk.VertexInputBindingDescription) {
-        binding_description = {
-                binding = 0,
-                stride = size_of(Vertex),
-                inputRate = .VERTEX,
-        }
-        return
 }

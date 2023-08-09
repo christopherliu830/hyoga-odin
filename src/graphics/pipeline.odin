@@ -49,13 +49,15 @@ create_pipeline :: proc(using ctx: ^Context) -> vk.Result {
         // VERTEX INPUT
         // describes the format of the vertex data that will be passed
         // to the vertex shader. 
+        attributes := vertex_attribute_descriptions()
+        binding := vertex_binding_description()
+
         vertex_input: vk.PipelineVertexInputStateCreateInfo = {
                 sType = .PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-                vertexBindingDescriptionCount = 0,
-                pVertexBindingDescriptions = nil,
-                vertexAttributeDescriptionCount = 0,
-                pVertexAttributeDescriptions = nil,
-
+                vertexBindingDescriptionCount = 1,
+                pVertexBindingDescriptions = &binding,
+                vertexAttributeDescriptionCount = u32(len(attributes)),
+                pVertexAttributeDescriptions = raw_data(attributes[:]),
         }
 
         // INPUT ASSEMBLY

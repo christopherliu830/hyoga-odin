@@ -37,28 +37,8 @@ Perframe :: struct {
 	render_finished: vk.Semaphore,
 }
 
-Buffer :: struct
-{
-	buffer: vk.Buffer,
-	memory: vk.DeviceMemory,
-	length: int,
-	size:   vk.DeviceSize,
-}
-
 QueueFamily :: enum
 {
 	GRAPHICS,
 	PRESENT,
 }
-
-Vertex :: struct
-{
-	pos: [2]f32,
-	color: [3]f32,
-}
-
-DEVICE_EXTENSIONS := [?]cstring{
-	"VK_KHR_swapchain",
-};
-
-VALIDATION_LAYERS := [?]cstring{"VK_LAYER_KHRONOS_validation"};
