@@ -53,14 +53,14 @@ swapchain_is_supported :: proc(device: vk.PhysicalDevice) -> (bool) {
 init_swapchain :: proc(using ctx: ^Context) -> vk.Result {
         using ctx.swapchain
 
-        vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface, &support.capabilities) or_return
+        vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(gpu, surface, &support.capabilities) or_return
 
         // Get the preferred format for the device.
         count: u32
-        vk.GetPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, &count, nil) or_return
+        vk.GetPhysicalDeviceSurfaceFormatsKHR(gpu, surface, &count, nil) or_return
         formats := make([]vk.SurfaceFormatKHR, count)
         defer delete(formats)
-        vk.GetPhysicalDeviceSurfaceFormatsKHR(physical_device, surface, &count, raw_data(formats)) or_return
+        vk.GetPhysicalDeviceSurfaceFormatsKHR(gpu, surface, &count, raw_data(formats)) or_return
 
         // If there is no preferred format, pick whatever
         if len(formats) == 1 && formats[0].format == .UNDEFINED {
@@ -86,7 +86,7 @@ init_swapchain :: proc(using ctx: ^Context) -> vk.Result {
         window_width, window_height := get_frame_buffer_size(ctx.window)
         extent = choose_swapchain_extents(support.capabilities, window_width, window_height)
 
-        vk.GetPhysicalDeviceSurfacePresentModesKHR(physical_device, surface, &count, nil) or_return
+        vk.GetPhysicalDeviceSurfacePresentModesKHR(gpu, surface, &count, nil) or_return
         present_modes := make([]vk.PresentModeKHR, count)
         defer delete(present_modes)
 
@@ -103,7 +103,6 @@ init_swapchain :: proc(using ctx: ^Context) -> vk.Result {
                 else min(preferred, support.capabilities.maxImageCount)
 
         // Find the right queue families
-        
         all_in_one_queue := queue_indices[.GRAPHICS] == queue_indices[.PRESENT]
         queue_family_indices := []u32{ u32(queue_indices[.GRAPHICS]), u32(queue_indices[.PRESENT]) }
 

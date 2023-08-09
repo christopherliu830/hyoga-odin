@@ -4,10 +4,10 @@ import "core:os"
 import "core:fmt"
 import vk "vendor:vulkan"
 
-/**
-* The pipeline configures the stages of the graphics pipeline, e.g. vertex shader,
-* tessellation, geometry shader, rasterization, fragment shader, color blending,
-* depth and stencil test.
+/*
+The pipeline configures the stages of the graphics pipeline, e.g. vertex shader,
+tessellation, geometry shader, rasterization, fragment shader, color blending,
+depth and stencil test.
 */
 Pipeline :: struct
 {
@@ -26,9 +26,9 @@ create_pipeline :: proc(using ctx: ^Context) -> vk.Result {
 
         vk.CreatePipelineLayout(device, &layout_info, nil, &pipeline_layout)
 
-        fragment_module := load_shader_module(ctx, "./frag.spv")
+        fragment_module := load_shader_module(ctx, "shaders/shader.frag.spv")
         defer vk.DestroyShaderModule(device, fragment_module, nil)
-        vertex_module := load_shader_module(ctx, "./vert.spv")
+        vertex_module := load_shader_module(ctx, "shaders/shader.vert.spv")
         defer vk.DestroyShaderModule(device, vertex_module, nil)
 
         shader_stages : []vk.PipelineShaderStageCreateInfo = {

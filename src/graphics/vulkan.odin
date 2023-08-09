@@ -9,113 +9,6 @@ import sa "core:container/small_array"
 import "vendor:glfw"
 import vk "vendor:vulkan"
 
-debug_messenger_callback :: proc "system" (
-messageSeverity: vk.DebugUtilsMessageSeverityFlagsEXT,
-messageTypes: vk.DebugUtilsMessageTypeFlagsEXT,
-pCallbackData: ^vk.DebugUtilsMessengerCallbackDataEXT,
-pUserData: rawptr) -> b32 {
-        context = runtime.default_context()
-
-        fmt.printf("%v: %v:\n", messageSeverity, messageTypes)
-        fmt.printf("\tmessageIDName   = <%v>\n", pCallbackData.pMessageIdName)
-        fmt.printf("\tmessageIDNumber = <%v>\n", pCallbackData.messageIdNumber)
-        fmt.printf("\tmessage         = <%v>\n", pCallbackData.pMessage)
-
-        if 0 < pCallbackData.queueLabelCount {
-                fmt.printf("\tQueue Labels: \n")
-                for i in 0..<pCallbackData.queueLabelCount {
-                        fmt.printf("\t\tlabelName = <%v>\n", pCallbackData.pQueueLabels[i].pLabelName)
-                }
-        }
-        if 0 < pCallbackData.cmdBufLabelCount {
-                fmt.printf("\tCommandBuffer Labels: \n")
-                for i in 0..<pCallbackData.cmdBufLabelCount {
-                        fmt.printf("\t\tlabelName = <%v>\n", pCallbackData.pCmdBufLabels[i].pLabelName)
-                }
-        }
-        if 0 < pCallbackData.objectCount {
-                fmt.printf("Objects:\n")
-                for i in 0..<pCallbackData.objectCount {
-                        fmt.printf("\t\tObject %d\n", pCallbackData.pObjects[i].objectType)
-                        fmt.printf("\t\t\tobjectType   = %s\n", pCallbackData.pObjects[i].objectType)
-                        fmt.printf("\t\t\tobjectHandle = %d\n", pCallbackData.pObjects[i].objectHandle)
-                        if pCallbackData.pObjects[i].pObjectName != nil {
-                                fmt.printf("\t\t\tobjectName   = <%v>\n", pCallbackData.pObjects[i].pObjectName)
-                        }
-                }
-        }
-        return true
-}
-
-error_check :: proc(result: vk.Result) {
-        if (result != .SUCCESS) {
-                fmt.panicf("VULKAN: %s\n", result)
-        }
-}
-
-init :: proc() -> (ctx: Context) {
-        using ctx;
-        create_window(&ctx)
-
-        // Vulkan does not come loaded into Odin by default, 
-        // so we need to begin by loading Vulkan's functions at runtime.
-        // This can be achieved using glfw's GetInstanceProcAddress function.
-        // the non-overloaded function is used to leverage auto_cast and avoid
-        // funky rawptr type stuff.
-        vk.load_proc_addresses_global(auto_cast glfw.GetInstanceProcAddress);
-
-        // In order to get debug information while creating the 
-        // Vulkan instance, the DebugCreateInfo is passed as part of the
-        // InstanceCreateInfo.
-        debug_info := debug_utils_messenger_create_info()
-
-        // Create Instance
-        result: vk.Result
-        result = init_vulkan_instance(&ctx, &debug_info)
-        error_check(result)
-
-        // Load the rest of Vulkan's functions.
-        vk.load_proc_addresses(instance)
-
-        init_debug_utils_messenger(&ctx, &debug_info)
-
-        result = init_physical_device_and_surface(&ctx)
-        error_check(result)
-
-        result = init_logical_device(&ctx)
-        error_check(result)
-
-        result = init_swapchain(&ctx)
-        error_check(result)
-
-        result = create_render_pass(&ctx)
-        error_check(result)
-
-        result = create_pipeline(&ctx)
-        error_check(result)
-
-        result = init_perframes(&ctx)
-        error_check(result)
-
-        result = init_swapchain_framebuffers(&ctx)
-        error_check(result)
-
-        return ctx
-}
-
-cleanup :: proc(using ctx: ^Context) {
-        vk.DeviceWaitIdle(device)
-
-        cleanup_perframes(ctx)
-        cleanup_pipeline(ctx)
-        cleanup_swapchain(ctx)
-
-        vk.DestroySurfaceKHR(instance, surface, nil)
-        vk.DestroyDebugUtilsMessengerEXT(instance, debug_messenger, nil)
-        vk.DestroyInstance(nil, nil)
-        cleanup_window(ctx.window)
-}
-
 update :: proc(using ctx: ^Context) -> bool {
         index: u32
         result: vk.Result
@@ -197,6 +90,9 @@ draw :: proc(using ctx: ^Context, index: u32) -> vk.Result {
 
         vk.CmdBindPipeline(cmd, vk.PipelineBindPoint.GRAPHICS, pipeline.handle)
 
+        offsets := raw_data([]vk.DeviceSize { 0 })
+        vk.CmdBindVertexBuffers(cmd, 0, 1, &vertex_buffer.buffer, offsets)
+
         viewport: vk.Viewport = {
                 width = f32(swapchain.extent.width),
                 height = f32(swapchain.extent.height),
@@ -210,7 +106,7 @@ draw :: proc(using ctx: ^Context, index: u32) -> vk.Result {
 
         vk.CmdSetScissor(cmd, 0, 1, &scissor)
 
-        vk.CmdDraw(cmd, 3, 1, 0, 0)
+        vk.CmdDraw(cmd, vertex_buffer.item_count, 1, 0, 0)
 
         vk.CmdEndRenderPass(cmd)
 
@@ -246,6 +142,86 @@ present_image :: proc(using ctx: ^Context, index: u32) -> vk.Result {
         }
 
         return vk.QueuePresentKHR(queues[.PRESENT], &present_info)
+}
+
+resize :: proc(using ctx: ^Context) -> bool {
+        fmt.println("Resizing")
+
+        if device == nil do return false
+
+        surface_properties: vk.SurfaceCapabilitiesKHR
+        vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(gpu, surface, &surface_properties)
+
+        if surface_properties.currentExtent == swapchain.extent do return false
+
+        for x, y := get_frame_buffer_size(ctx.window); x == 0 && y == 0; {
+                x, y = get_frame_buffer_size(ctx.window)
+                glfw.WaitEvents()
+        }
+
+        vk.DeviceWaitIdle(device)
+
+        cleanup_swapchain_framebuffers(ctx)
+
+        init_swapchain(ctx)
+        init_swapchain_framebuffers(ctx)
+
+        return true
+}
+
+//region Initialization functions
+
+init :: proc() -> (ctx: Context) {
+        using ctx;
+        create_window(&ctx)
+
+        // Vulkan does not come loaded into Odin by default, 
+        // so we need to begin by loading Vulkan's functions at runtime.
+        // This can be achieved using glfw's GetInstanceProcAddress function.
+        // the non-overloaded function is used to leverage auto_cast and avoid
+        // funky rawptr type stuff.
+        vk.load_proc_addresses_global(auto_cast glfw.GetInstanceProcAddress);
+
+        // In order to get debug information while creating the 
+        // Vulkan instance, the DebugCreateInfo is passed as part of the
+        // InstanceCreateInfo.
+        debug_info := debug_utils_messenger_create_info()
+
+        // Create Instance
+        result: vk.Result
+        result = init_vulkan_instance(&ctx, &debug_info)
+        error_check(result)
+
+        // Load the rest of Vulkan's functions.
+        vk.load_proc_addresses(instance)
+
+        init_debug_utils_messenger(&ctx, &debug_info)
+
+        result = init_physical_device_and_surface(&ctx)
+        error_check(result)
+
+        result = init_logical_device(&ctx)
+        error_check(result)
+
+        result = init_swapchain(&ctx)
+        error_check(result)
+
+        result = init_perframes(&ctx)
+        error_check(result)
+
+        result = create_render_pass(&ctx)
+        error_check(result)
+
+        result = create_pipeline(&ctx)
+        error_check(result)
+
+        result = init_swapchain_framebuffers(&ctx)
+        error_check(result)
+
+        vertex_buffer, result = init_vertex_buffer(device, gpu)
+        error_check(result)
+
+        return ctx
 }
 
 init_vulkan_instance :: proc(using ctx: ^Context, debug_create_info: ^vk.DebugUtilsMessengerCreateInfoEXT) -> vk.Result {
@@ -308,22 +284,6 @@ init_vulkan_instance :: proc(using ctx: ^Context, debug_create_info: ^vk.DebugUt
         return .SUCCESS
 }
 
-debug_utils_messenger_create_info :: proc() -> (debug_utils: vk.DebugUtilsMessengerCreateInfoEXT) {
-        return {
-                sType = vk.StructureType.DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
-                messageSeverity = vk.DebugUtilsMessageSeverityFlagsEXT {
-                        .WARNING,
-                        .ERROR,
-                },
-                messageType = vk.DebugUtilsMessageTypeFlagsEXT {
-                        .GENERAL,
-                        .PERFORMANCE,
-                        .VALIDATION,
-                },
-                pfnUserCallback = debug_messenger_callback,
-        }
-}
-
 init_debug_utils_messenger :: proc(using ctx: ^Context, debug_utils: ^vk.DebugUtilsMessengerCreateInfoEXT) {
         result := vk.CreateDebugUtilsMessengerEXT(instance, debug_utils, nil, &debug_messenger)
 }
@@ -335,10 +295,10 @@ init_physical_device_and_surface :: proc(using ctx: ^Context) -> vk.Result {
         defer delete(devices)
         vk.EnumeratePhysicalDevices(instance, &count, raw_data(devices)) or_return
 
-        for gpu in devices {
+        for physical_device in devices {
                 // Properties
                 properties: vk.PhysicalDeviceProperties
-                vk.GetPhysicalDeviceProperties(gpu, &properties)
+                vk.GetPhysicalDeviceProperties(physical_device, &properties)
 
                 if surface != 0 {
                         vk.DestroySurfaceKHR(instance, surface, nil)
@@ -348,17 +308,17 @@ init_physical_device_and_surface :: proc(using ctx: ^Context) -> vk.Result {
 
                 // Locate a device with the GRAPHICS queue flag
                 // as well as surface support.
-                vk.GetPhysicalDeviceQueueFamilyProperties(gpu, &count, nil)
+                vk.GetPhysicalDeviceQueueFamilyProperties(physical_device, &count, nil)
                 queue_family_properties := make([]vk.QueueFamilyProperties, count)
                 defer delete(queue_family_properties)
-                vk.GetPhysicalDeviceQueueFamilyProperties(gpu, &count, raw_data(queue_family_properties))
+                vk.GetPhysicalDeviceQueueFamilyProperties(physical_device, &count, raw_data(queue_family_properties))
 
                 queue_indices[.GRAPHICS] = -1;
                 queue_indices[.PRESENT] = -1;
 
                 for queue, index in queue_family_properties {
                         supported: b32
-                        vk.GetPhysicalDeviceSurfaceSupportKHR(gpu, u32(index), surface, &supported) or_return
+                        vk.GetPhysicalDeviceSurfaceSupportKHR(physical_device, u32(index), surface, &supported) or_return
                         if queue_indices[.PRESENT] == -1 && supported {
                                 queue_indices[.PRESENT] = index
                         }
@@ -368,7 +328,7 @@ init_physical_device_and_surface :: proc(using ctx: ^Context) -> vk.Result {
                         }
                 }
                 fmt.printf("Enabled GPU: %s\n", cstring(raw_data(&properties.deviceName)))
-                physical_device = gpu
+                gpu = physical_device
                 break
         }
         return .SUCCESS
@@ -376,10 +336,10 @@ init_physical_device_and_surface :: proc(using ctx: ^Context) -> vk.Result {
 
 init_logical_device :: proc(using ctx: ^Context) -> vk.Result {
         count: u32
-        vk.EnumerateDeviceExtensionProperties(physical_device, nil, &count, nil) or_return
+        vk.EnumerateDeviceExtensionProperties(gpu, nil, &count, nil) or_return
         extensions := make([]vk.ExtensionProperties, count)
         defer delete(extensions)
-        vk.EnumerateDeviceExtensionProperties(physical_device, nil, &count, raw_data(extensions)) or_return
+        vk.EnumerateDeviceExtensionProperties(gpu, nil, &count, raw_data(extensions)) or_return
 
         required_extensions := make([dynamic]cstring, 0, 2)
         defer delete(required_extensions)
@@ -402,7 +362,7 @@ init_logical_device :: proc(using ctx: ^Context) -> vk.Result {
                 append(&required_extensions, "VK_KHR_portability_subset")
         } 
 
-        if swapchain_is_supported(physical_device) {
+        if swapchain_is_supported(gpu) {
                 append(&required_extensions, vk.KHR_SWAPCHAIN_EXTENSION_NAME)
         } else {
                 fmt.panicf("Swapchain is not supported!\n")
@@ -432,7 +392,7 @@ init_logical_device :: proc(using ctx: ^Context) -> vk.Result {
                 pNext = &shader_features,
         }
 
-        vk.CreateDevice(physical_device, &device_create_info, nil, &device) or_return
+        vk.CreateDevice(gpu, &device_create_info, nil, &device) or_return
 
         vk.GetDeviceQueue(device, u32(queue_indices[.GRAPHICS]), 0, &queues[.GRAPHICS])
         vk.GetDeviceQueue(device, u32(queue_indices[.PRESENT]), 0, &queues[.PRESENT])
@@ -481,6 +441,34 @@ init_perframes :: proc(using ctx: ^Context) -> vk.Result {
         return .SUCCESS
 }
 
+// Temporary
+init_vertex_buffer :: proc(device: vk.Device, gpu: vk.PhysicalDevice) ->
+(buffer: Buffer, result: vk.Result) {
+        v := VERTICES
+        buffer = create_buffer(device, gpu, size_of(Vertex), len(VERTICES)) or_return
+        allocate_buffer(device, buffer, &v)
+        return buffer, .SUCCESS
+}
+
+//endregion Initialization functions
+
+//region Cleanup functions
+
+cleanup :: proc(using ctx: ^Context) {
+        vk.DeviceWaitIdle(device)
+
+        destroy_buffer(device, vertex_buffer)
+
+        cleanup_perframes(ctx)
+        cleanup_pipeline(ctx)
+        cleanup_swapchain(ctx)
+
+        vk.DestroySurfaceKHR(instance, surface, nil)
+        vk.DestroyDebugUtilsMessengerEXT(instance, debug_messenger, nil)
+        vk.DestroyInstance(nil, nil)
+        cleanup_window(ctx.window)
+}
+
 cleanup_perframes :: proc(using ctx: ^Context) {
         for perframe in perframes {
                 vk.DestroyCommandPool(device, perframe.command_pool, nil)
@@ -491,27 +479,68 @@ cleanup_perframes :: proc(using ctx: ^Context) {
         delete(perframes)
 }
 
-resize :: proc(using ctx: ^Context) -> bool {
-        fmt.println("Resizing")
+//endregion Cleanup functions
 
-        if device == nil do return false
+//region Debug
 
-        surface_properties: vk.SurfaceCapabilitiesKHR
-        vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface, &surface_properties)
+debug_messenger_callback :: proc "system" (
+messageSeverity: vk.DebugUtilsMessageSeverityFlagsEXT,
+messageTypes: vk.DebugUtilsMessageTypeFlagsEXT,
+pCallbackData: ^vk.DebugUtilsMessengerCallbackDataEXT,
+pUserData: rawptr) -> b32 {
+        context = runtime.default_context()
 
-        if surface_properties.currentExtent == swapchain.extent do return false
+        fmt.printf("%v: %v:\n", messageSeverity, messageTypes)
+        fmt.printf("\tmessageIDName   = <%v>\n", pCallbackData.pMessageIdName)
+        fmt.printf("\tmessageIDNumber = <%v>\n", pCallbackData.messageIdNumber)
+        fmt.printf("\tmessage         = <%v>\n", pCallbackData.pMessage)
 
-        for x, y := get_frame_buffer_size(ctx.window); x == 0 && y == 0; {
-                x, y = get_frame_buffer_size(ctx.window)
-                glfw.WaitEvents()
+        if 0 < pCallbackData.queueLabelCount {
+                fmt.printf("\tQueue Labels: \n")
+                for i in 0..<pCallbackData.queueLabelCount {
+                        fmt.printf("\t\tlabelName = <%v>\n", pCallbackData.pQueueLabels[i].pLabelName)
+                }
         }
-
-        vk.DeviceWaitIdle(device)
-
-        cleanup_swapchain_framebuffers(ctx)
-
-        init_swapchain(ctx)
-        init_swapchain_framebuffers(ctx)
-
+        if 0 < pCallbackData.cmdBufLabelCount {
+                fmt.printf("\tCommandBuffer Labels: \n")
+                for i in 0..<pCallbackData.cmdBufLabelCount {
+                        fmt.printf("\t\tlabelName = <%v>\n", pCallbackData.pCmdBufLabels[i].pLabelName)
+                }
+        }
+        if 0 < pCallbackData.objectCount {
+                fmt.printf("Objects:\n")
+                for i in 0..<pCallbackData.objectCount {
+                        fmt.printf("\t\tObject %d\n", pCallbackData.pObjects[i].objectType)
+                        fmt.printf("\t\t\tobjectType   = %s\n", pCallbackData.pObjects[i].objectType)
+                        fmt.printf("\t\t\tobjectHandle = %d\n", pCallbackData.pObjects[i].objectHandle)
+                        if pCallbackData.pObjects[i].pObjectName != nil {
+                                fmt.printf("\t\t\tobjectName   = <%v>\n", pCallbackData.pObjects[i].pObjectName)
+                        }
+                }
+        }
         return true
 }
+
+debug_utils_messenger_create_info :: proc() -> (debug_utils: vk.DebugUtilsMessengerCreateInfoEXT) {
+        return {
+                sType = vk.StructureType.DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+                messageSeverity = vk.DebugUtilsMessageSeverityFlagsEXT {
+                        .WARNING,
+                        .ERROR,
+                },
+                messageType = vk.DebugUtilsMessageTypeFlagsEXT {
+                        .GENERAL,
+                        .PERFORMANCE,
+                        .VALIDATION,
+                },
+                pfnUserCallback = debug_messenger_callback,
+        }
+}
+
+error_check :: proc(result: vk.Result) {
+        if (result != .SUCCESS) {
+                fmt.panicf("VULKAN: %s\n", result)
+        }
+}
+
+//endregion Debug

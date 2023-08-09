@@ -11,7 +11,7 @@ Context :: struct
 
 	instance: vk.Instance,
   	device:   vk.Device,
-	physical_device: vk.PhysicalDevice,
+	gpu: vk.PhysicalDevice,
 	swapchain: Swapchain,
 	pipeline: Pipeline,
 	queue_indices:   [QueueFamily]int,
