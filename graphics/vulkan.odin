@@ -114,7 +114,7 @@ cleanup :: proc(using ctx: ^Context) {
         vk.DestroySurfaceKHR(instance, surface, nil)
         vk.DestroyDebugUtilsMessengerEXT(instance, debug_messenger, nil)
         vk.DestroyInstance(nil, nil)
-        cleanup_window(ctx)
+        cleanup_window(ctx.window)
 }
 
 update :: proc(using ctx: ^Context) -> bool {
@@ -263,7 +263,6 @@ present_image :: proc(using ctx: ^Context, index: u32) -> vk.Result {
         return vk.QueuePresentKHR(queues[.PRESENT], &present_info)
 }
 
-
 init_vulkan_instance :: proc(using ctx: ^Context, debug_create_info: ^vk.DebugUtilsMessengerCreateInfoEXT) -> vk.Result {
         application_info: vk.ApplicationInfo = {
                 sType = vk.StructureType.APPLICATION_INFO,
@@ -360,7 +359,7 @@ init_physical_device_and_surface :: proc(using ctx: ^Context) -> vk.Result {
                         vk.DestroySurfaceKHR(instance, surface, nil)
                 }
 
-                create_surface(ctx)
+                glfw.CreateWindowSurface(instance, window, nil, &ctx.surface)
 
                 // Locate a device with the GRAPHICS queue flag
                 // as well as surface support.
@@ -521,6 +520,11 @@ resize :: proc(using ctx: ^Context) -> bool {
 
         if surface_properties.currentExtent == swapchain.extent do return false
 
+        for x, y := get_frame_buffer_size(ctx.window); x == 0 && y == 0; {
+                x, y = get_frame_buffer_size(ctx.window)
+                glfw.WaitEvents()
+        }
+
         vk.DeviceWaitIdle(device)
 
         cleanup_swapchain_framebuffers(ctx)
@@ -529,4 +533,14 @@ resize :: proc(using ctx: ^Context) -> bool {
         init_swapchain_framebuffers(ctx)
 
         return true
+}
+
+get_vertex_binding_description :: proc() ->
+(binding_description: vk.VertexInputBindingDescription) {
+        binding_description = {
+                binding = 0,
+                stride = size_of(Vertex),
+                inputRate = .VERTEX,
+        }
+        return
 }

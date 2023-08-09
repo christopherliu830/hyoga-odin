@@ -87,7 +87,7 @@ init_swapchain :: proc(using ctx: ^Context) -> vk.Result {
 
         if format.format == .UNDEFINED do format = formats[0]
 
-        window_width, window_height := get_frame_buffer_size(ctx)
+        window_width, window_height := get_frame_buffer_size(ctx.window)
         extent = choose_swapchain_extents(support.capabilities, window_width, window_height)
 
         vk.GetPhysicalDeviceSurfacePresentModesKHR(physical_device, surface, &count, nil) or_return

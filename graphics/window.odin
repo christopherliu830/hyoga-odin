@@ -10,6 +10,7 @@ WINDOW_TITLE :: "Odinpi"
 
 import "core:fmt"
 import "core:runtime"
+import vk "vendor:vulkan"
 import "vendor:glfw"
 
 error_callback :: proc "c" (code: i32, desc: cstring) {
@@ -36,20 +37,22 @@ create_window :: proc(using ctx: ^Context) {
         }
 }
 
-create_surface :: proc(using ctx: ^Context) {
+create_surface :: proc(instance: vk.Instance, window: glfw.WindowHandle) ->
+(surface: vk.SurfaceKHR) {
         glfw.CreateWindowSurface(instance, window, nil, &surface)
+        return surface
 }
 
-window_should_close :: proc(using ctx: ^Context) -> bool {
+window_should_close :: proc(window: glfw.WindowHandle) -> bool {
         return bool(glfw.WindowShouldClose(window))
 }
 
-cleanup_window :: proc(using ctx: ^Context) {
+cleanup_window :: proc(window: glfw.WindowHandle) {
         glfw.DestroyWindow(window)
         glfw.Terminate()
 }
 
-get_frame_buffer_size :: proc(using ctx: ^Context) -> (w, h: u32) {
+get_frame_buffer_size :: proc(window: glfw.WindowHandle) -> (w, h: u32) {
         x, y := glfw.GetFramebufferSize(window)
         w = cast(u32)x
         h = cast(u32)y
