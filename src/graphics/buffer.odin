@@ -36,8 +36,7 @@ count: u32) ->
         allocate_info: vk.MemoryAllocateInfo = {
                 sType = .MEMORY_ALLOCATE_INFO,
                 allocationSize = requirements.size,
-                memoryTypeIndex = find_memory_type(
-                        gpu, { .HOST_VISIBLE })
+                memoryTypeIndex = find_memory_type(gpu, { .HOST_VISIBLE })
         }
 
         vk.AllocateMemory(device, &allocate_info, nil, &buffer.memory) or_return

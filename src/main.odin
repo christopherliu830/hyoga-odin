@@ -8,7 +8,7 @@ main :: proc () {
         using ctx := graphics.init()
         defer graphics.cleanup(&ctx)
 
-        for !graphics.window_should_close(ctx.window) {
+        for !glfw.WindowShouldClose(ctx.window) {
                 glfw.PollEvents()
                 graphics.update(&ctx)
         }

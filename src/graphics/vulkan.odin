@@ -9,6 +9,50 @@ import sa "core:container/small_array"
 import "vendor:glfw"
 import vk "vendor:vulkan"
 
+WINDOW_HEIGHT :: 600
+WINDOW_WIDTH :: 800
+WINDOW_TITLE :: "Hyoga"
+MAX_FRAMES_IN_FLIGHT :: 2
+
+Context :: struct
+{
+	debug_messenger: vk.DebugUtilsMessengerEXT,
+
+	instance: vk.Instance,
+  	device:   vk.Device,
+	gpu: vk.PhysicalDevice,
+	swapchain: Swapchain,
+	pipeline: Pipeline,
+	queue_indices:   [QueueFamily]int,
+	queues:   [QueueFamily]vk.Queue,
+	surface:  vk.SurfaceKHR,
+	window:   glfw.WindowHandle,
+	vertex_buffer: Buffer,
+	index_buffer: Buffer,
+	
+	curr_frame: u32,
+	framebuffer_resized: bool,
+
+	perframes: []Perframe,
+}
+
+Perframe :: struct {
+	device: vk.Device,
+	queue_index: uint,
+	in_flight_fence: vk.Fence,
+	command_pool : vk.CommandPool,
+	command_buffer: vk.CommandBuffer,
+	image_available: vk.Semaphore,
+	render_finished: vk.Semaphore,
+}
+
+QueueFamily :: enum
+{
+	GRAPHICS,
+	PRESENT,
+}
+
+
 update :: proc(using ctx: ^Context) -> bool {
         index: u32
         result: vk.Result
@@ -154,8 +198,8 @@ resize :: proc(using ctx: ^Context) -> bool {
 
         if surface_properties.currentExtent == swapchain.extent do return false
 
-        for x, y := get_frame_buffer_size(ctx.window); x == 0 && y == 0; {
-                x, y = get_frame_buffer_size(ctx.window)
+        for x, y := glfw.GetFramebufferSize(ctx.window); x == 0 && y == 0; {
+                x, y = glfw.GetFramebufferSize(ctx.window)
                 glfw.WaitEvents()
         }
 
@@ -169,11 +213,11 @@ resize :: proc(using ctx: ^Context) -> bool {
         return true
 }
 
-//region Initialization functions
+//region Initialization functions 
 
 init :: proc() -> (ctx: Context) {
         using ctx;
-        create_window(&ctx)
+        init_window(&ctx)
 
         // Vulkan does not come loaded into Odin by default, 
         // so we need to begin by loading Vulkan's functions at runtime.
@@ -185,7 +229,19 @@ init :: proc() -> (ctx: Context) {
         // In order to get debug information while creating the 
         // Vulkan instance, the DebugCreateInfo is passed as part of the
         // InstanceCreateInfo.
-        debug_info := debug_utils_messenger_create_info()
+        debug_info : vk.DebugUtilsMessengerCreateInfoEXT = {
+                sType = vk.StructureType.DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+                messageSeverity = vk.DebugUtilsMessageSeverityFlagsEXT {
+                        .WARNING,
+                        .ERROR,
+                },
+                messageType = vk.DebugUtilsMessageTypeFlagsEXT {
+                        .GENERAL,
+                        .PERFORMANCE,
+                        .VALIDATION,
+                },
+                pfnUserCallback = debug_messenger_callback,
+        }
 
         // Create Instance
         result: vk.Result
@@ -195,7 +251,8 @@ init :: proc() -> (ctx: Context) {
         // Load the rest of Vulkan's functions.
         vk.load_proc_addresses(instance)
 
-        init_debug_utils_messenger(&ctx, &debug_info)
+        result = vk.CreateDebugUtilsMessengerEXT(instance, &debug_info, nil, &debug_messenger)
+        error_check(result)
 
         result = init_physical_device_and_surface(&ctx)
         error_check(result)
@@ -222,6 +279,19 @@ init :: proc() -> (ctx: Context) {
         error_check(result)
 
         return ctx
+}
+
+init_window :: proc(using ctx: ^Context) {
+        glfw.SetErrorCallback(error_callback)
+        glfw.Init()
+
+        glfw.WindowHint(glfw.CLIENT_API, glfw.NO_API);
+
+        window = glfw.CreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE, nil, nil);
+        
+        if (!glfw.VulkanSupported()) {
+                panic("Vulkan not supported!")
+        }
 }
 
 init_vulkan_instance :: proc(using ctx: ^Context, debug_create_info: ^vk.DebugUtilsMessengerCreateInfoEXT) -> vk.Result {
@@ -282,10 +352,6 @@ init_vulkan_instance :: proc(using ctx: ^Context, debug_create_info: ^vk.DebugUt
         vk.CreateInstance(&instance_create_info, nil, &instance) or_return
 
         return .SUCCESS
-}
-
-init_debug_utils_messenger :: proc(using ctx: ^Context, debug_utils: ^vk.DebugUtilsMessengerCreateInfoEXT) {
-        result := vk.CreateDebugUtilsMessengerEXT(instance, debug_utils, nil, &debug_messenger)
 }
 
 init_physical_device_and_surface :: proc(using ctx: ^Context) -> vk.Result {
@@ -466,7 +532,9 @@ cleanup :: proc(using ctx: ^Context) {
         vk.DestroySurfaceKHR(instance, surface, nil)
         vk.DestroyDebugUtilsMessengerEXT(instance, debug_messenger, nil)
         vk.DestroyInstance(nil, nil)
-        cleanup_window(ctx.window)
+
+        glfw.DestroyWindow(window)
+        glfw.Terminate()
 }
 
 cleanup_perframes :: proc(using ctx: ^Context) {
@@ -521,26 +589,20 @@ pUserData: rawptr) -> b32 {
         return true
 }
 
-debug_utils_messenger_create_info :: proc() -> (debug_utils: vk.DebugUtilsMessengerCreateInfoEXT) {
-        return {
-                sType = vk.StructureType.DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
-                messageSeverity = vk.DebugUtilsMessageSeverityFlagsEXT {
-                        .WARNING,
-                        .ERROR,
-                },
-                messageType = vk.DebugUtilsMessageTypeFlagsEXT {
-                        .GENERAL,
-                        .PERFORMANCE,
-                        .VALIDATION,
-                },
-                pfnUserCallback = debug_messenger_callback,
-        }
-}
-
 error_check :: proc(result: vk.Result) {
         if (result != .SUCCESS) {
                 fmt.panicf("VULKAN: %s\n", result)
         }
 }
 
+error_callback :: proc "c" (code: i32, desc: cstring) {
+	context = runtime.default_context()
+	fmt.println(desc, code)
+}
+
+key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods: i32) {
+	if key == glfw.KEY_ESCAPE && action == glfw.PRESS {
+		glfw.SetWindowShouldClose(window, glfw.TRUE)
+	}
+}
 //endregion Debug

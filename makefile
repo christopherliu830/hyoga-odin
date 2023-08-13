@@ -1,3 +1,5 @@
+PROJECT_NAME = Hyoga
+
 SHADER_SOURCE_DIR = shaders
 SHADER_BUILD_DIR = build/shaders
 ODIN_SOURCE_DIR = src
@@ -6,7 +8,7 @@ SHADER_COMPILER = glslc
 SHADER_FLAGS = -c
 
 ODIN_COMPILER = odin
-ODIN_FLAGS = -debug -out=build/odenpi.exe
+ODIN_FLAGS = -debug -out=build/hyoga.exe
 
 ODIN_SOURCES = $(wildcard $(ODIN_SOURCE_DIR)/*/*.odin)
 

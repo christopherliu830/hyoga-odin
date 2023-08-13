@@ -1,6 +1,7 @@
 package graphics
 
 import vk "vendor:vulkan"
+import "vendor:glfw"
 import "core:fmt"
 
 /**
@@ -83,14 +84,26 @@ init_swapchain :: proc(using ctx: ^Context) -> vk.Result {
 
         if format.format == .UNDEFINED do format = formats[0]
 
-        window_width, window_height := get_frame_buffer_size(ctx.window)
-        extent = choose_swapchain_extents(support.capabilities, window_width, window_height)
+        window_width, window_height := glfw.GetFramebufferSize(ctx.window)
+
+        caps := support.capabilities
+        if caps.currentExtent.width != max(u32) {
+                extent = caps.currentExtent
+        }
+        else {
+                extent.width = clamp(extent.width, caps.minImageExtent.width, caps.maxImageExtent.width)
+                extent.height = clamp(extent.height, caps.minImageExtent.height, caps.maxImageExtent.height)
+        }
 
         vk.GetPhysicalDeviceSurfacePresentModesKHR(gpu, surface, &count, nil) or_return
         present_modes := make([]vk.PresentModeKHR, count)
         defer delete(present_modes)
 
-        present_mode = choose_swapchain_present_mode(present_modes)
+        present_mode = .IMMEDIATE
+        for mode in present_modes {
+                if mode == .MAILBOX do present_mode = mode
+        }
+
 
         // Determine the number of [vk.Image]s to use in the swapchain.
         // Ideally, we desire to own 1 image at a time, the rest of the images can
@@ -207,29 +220,4 @@ cleanup_swapchain_framebuffers :: proc(using ctx: ^Context) {
         }
 
         delete(swapchain.framebuffers)
-}
-
-/*
-The swap extent is the resolution of the swap chain images and
-it's almost always exactly equal to the resolution of the window
-that we're drawing to in pixels. If the swap extent is set to max(u32)
-then try to match the window resolution.
-*/
-choose_swapchain_extents :: proc(caps: vk.SurfaceCapabilitiesKHR, w, h: u32) -> vk.Extent2D {
-        if caps.currentExtent.width != max(u32) do return caps.currentExtent
-        else {
-                extent: vk.Extent2D = { width = w, height = h }
-                extent.width = clamp(extent.width, caps.minImageExtent.width, caps.maxImageExtent.width)
-                extent.height = clamp(extent.height, caps.minImageExtent.height, caps.maxImageExtent.height)
-                return extent
-        }
-}
-
-choose_swapchain_present_mode :: proc(available_present_modes: []vk.PresentModeKHR) -> vk.PresentModeKHR {
-        for present_mode in available_present_modes {
-                if present_mode == .MAILBOX {
-                        return present_mode
-                }
-        }
-        return .IMMEDIATE
 }
