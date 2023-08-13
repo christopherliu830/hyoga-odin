@@ -15,4 +15,14 @@
         },
     },
     "terminal.integrated.defaultProfile.windows": "ucrt64",
+
+    "maptz.regionfolder": {
+        "[odin]": {
+            "foldEnd": "//endregion",
+            "foldStart": "//region [NAME]",
+            "foldStartRegex": "//region .*",
+            "foldEndRegex": "//endregion .*",
+            "disableFolding": false
+        }
+    }
 }

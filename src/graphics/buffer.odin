@@ -2,23 +2,30 @@ package graphics
 
 import "core:mem"
 import vk "vendor:vulkan"
+import "vma"
 
 Buffer :: struct {
         buffer: vk.Buffer,
-        memory: vk.DeviceMemory,
+        allocation: vma.Allocation,
+        allocation_info: vma.AllocationInfo,
         item_count: u32,
+        len: u32,
         buffer_size: vk.DeviceSize,
 }
 
 create_buffer :: proc(
-        using ctx: ^Context,
-        size: vk.DeviceSize,
-        usage: vk.BufferUsageFlags,
-        memory_flags: vk.MemoryPropertyFlags,
+using ctx: ^Context,
+size: vk.DeviceSize,
+item_count: u32,
+usage: vk.BufferUsageFlags,
+preferred_flags: vma.AllocationCreateFlags,
+memory_usage: vma.MemoryUsage = .AUTO,
+memory_flags: vk.MemoryPropertyFlags = {},
 ) ->
 (buffer: Buffer, result: vk.Result) {
 
         buffer.buffer_size = size
+        buffer.item_count = item_count
 
         buffer_info: vk.BufferCreateInfo = {
                 sType = .BUFFER_CREATE_INFO,
@@ -27,19 +34,18 @@ create_buffer :: proc(
                 sharingMode = .EXCLUSIVE,
         }
 
-        vk.CreateBuffer(device, &buffer_info, nil, &buffer.buffer) or_return
-
-        requirements: vk.MemoryRequirements
-        vk.GetBufferMemoryRequirements(device, buffer.buffer, &requirements)
-
-        allocate_info: vk.MemoryAllocateInfo = {
-                sType = .MEMORY_ALLOCATE_INFO,
-                allocationSize = requirements.size,
-                memoryTypeIndex = find_memory_type(gpu, memory_flags),
+        allocation_info: vma.AllocationCreateInfo = {
+                flags = preferred_flags,
+                usage = memory_usage,
+                requiredFlags = memory_flags,
         }
 
-        vk.AllocateMemory(device, &allocate_info, nil, &buffer.memory) or_return
-        vk.BindBufferMemory(device, buffer.buffer, buffer.memory, 0)
+        vma.CreateBuffer(allocator,
+                &buffer_info,
+                &allocation_info,
+                &buffer.buffer,
+                &buffer.allocation,
+                &buffer.allocation_info) or_return
         
         return buffer, .SUCCESS
 }
@@ -48,12 +54,11 @@ create_buffer :: proc(
 allocate_buffer :: proc(using ctx: ^Context, buffer: Buffer, data: rawptr) -> vk.Result {
         mapped_ptr : rawptr
 
-        vk.MapMemory(device, buffer.memory, 0, buffer.buffer_size, {}, &mapped_ptr)
+        vma.MapMemory(allocator, buffer.allocation, &mapped_ptr)
 
         mem.copy(mapped_ptr, data, int(buffer.buffer_size))
-        flush_buffer(ctx, buffer) or_return
-
-        vk.UnmapMemory(device, buffer.memory)
+        vma.FlushAllocation(allocator, buffer.allocation, buffer.buffer_size, 0) or_return
+        vma.UnmapMemory(allocator, buffer.allocation)
 
         return .SUCCESS
         
@@ -61,38 +66,5 @@ allocate_buffer :: proc(using ctx: ^Context, buffer: Buffer, data: rawptr) -> vk
 
 // Destroy a buffer.
 destroy_buffer :: proc(using ctx: ^Context, buffer: Buffer) {
-        vk.DestroyBuffer(device, buffer.buffer, nil)
-        vk.FreeMemory(device, buffer.memory, nil)
-}
-
-// Quick and dirty explicit flushing.
-flush_buffer :: proc(using ctx: ^Context, buffer: Buffer) -> vk.Result {
-        mapped_memory_range: vk.MappedMemoryRange = {
-                sType = .MAPPED_MEMORY_RANGE,
-                memory = buffer.memory,
-                size = buffer.buffer_size,
-                offset = 0,
-        }
-
-        vk.FlushMappedMemoryRanges(device, 1, &mapped_memory_range) or_return
-
-        vk.InvalidateMappedMemoryRanges(device, 1, &mapped_memory_range) or_return
-
-        return .SUCCESS
-}
-
-// Find a suitable memory type.
-find_memory_type :: proc(
-gpu: vk.PhysicalDevice,
-typeMask: vk.MemoryPropertyFlags) -> u32 {
-        properties: vk.PhysicalDeviceMemoryProperties
-        vk.GetPhysicalDeviceMemoryProperties(gpu, &properties)
-
-        for type, i in properties.memoryTypes {
-                if typeMask <= type.propertyFlags {
-                        return u32(i)
-                }
-        }
-
-        return 0
+        vma.DestroyBuffer(allocator, buffer.buffer, buffer.allocation)
 }

@@ -16,7 +16,7 @@
             "command": "make all",
             "group": {
                 "kind": "build",
-                "isDefault": true
+                "isDefault": false
             }
         },
         {
@@ -25,7 +25,7 @@
             "command": "make shaders",
             "group": {
                 "kind": "build",
-                "isDefault": true
+                "isDefault": false
             }
         },
         {
@@ -34,7 +34,7 @@
             "command": "make vma",
             "group": {
                 "kind": "build",
-                "isDefault": true
+                "isDefault": false
             }
         },
 

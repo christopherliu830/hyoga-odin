@@ -14,74 +14,72 @@ WINDOW_WIDTH :: 800
 WINDOW_TITLE :: "Hyoga"
 MAX_FRAMES_IN_FLIGHT :: 2
 
-Context :: struct
-{
+Context :: struct {
 	debug_messenger: vk.DebugUtilsMessengerEXT,
 
-        // Nested structs
-	swapchain: Swapchain,
-	pipeline: Pipeline,
-	perframes: []Perframe,
-        upload_context: UploadContext,
-        allocator: vma.Allocator,
+	// Nested structs
+	swapchain:       Swapchain,
+	pipeline:        Pipeline,
+	perframes:       []Perframe,
+	upload_context:  UploadContext,
+	allocator:       vma.Allocator,
 
-        // Handles
-	instance: vk.Instance,
-  	device:   vk.Device,
-	gpu: vk.PhysicalDevice,
-	surface:  vk.SurfaceKHR,
-	window:   glfw.WindowHandle,
+	// Handles
+	instance:        vk.Instance,
+	device:          vk.Device,
+	gpu:             vk.PhysicalDevice,
+	surface:         vk.SurfaceKHR,
+	window:          glfw.WindowHandle,
 
-        // Buffers
-	vertex_buffer: Buffer,
-	index_buffer: Buffer,
+	// Buffers
+	vertex_buffer:   Buffer,
+	index_buffer:    Buffer,
 
-        // Queues
+	// Queues
 	queue_indices:   [QueueFamily]int,
-	queues:   [QueueFamily]vk.Queue,
+	queues:          [QueueFamily]vk.Queue,
 }
 
 Perframe :: struct {
-	device: vk.Device,
-	queue_index: uint,
+	device:          vk.Device,
+	queue_index:     uint,
 	in_flight_fence: vk.Fence,
-	command_pool : vk.CommandPool,
-	command_buffer: vk.CommandBuffer,
+	command_pool:    vk.CommandPool,
+	command_buffer:  vk.CommandBuffer,
 	image_available: vk.Semaphore,
 	render_finished: vk.Semaphore,
 }
 
-QueueFamily :: enum
-{
+QueueFamily :: enum {
 	GRAPHICS,
 	PRESENT,
 }
 
 UploadContext :: struct {
-        command_pool: vk.CommandPool,
-        command_buffer: vk.CommandBuffer,
-        fence: vk.Fence,
+	command_pool:   vk.CommandPool,
+	command_buffer: vk.CommandBuffer,
+	fence:          vk.Fence,
 }
 
 //region Interface
 
 update :: proc(using ctx: ^Context) -> bool {
-        index: u32
-        result: vk.Result
+	index: u32
+	result: vk.Result
 
-        result = acquire_image(ctx, &index)
-        if result == .SUBOPTIMAL_KHR || result == .ERROR_OUT_OF_DATE_KHR {
-                resize(ctx)
-        }
+	result = acquire_image(ctx, &index)
+	if result == .SUBOPTIMAL_KHR || result == .ERROR_OUT_OF_DATE_KHR {
+		resize(ctx)
+	}
 
-        result = draw(ctx, index)
+	result = draw(ctx, index)
 
-        result = present_image(ctx, index)
-        if result == .SUBOPTIMAL_KHR || result == .ERROR_OUT_OF_DATE_KHR {
-                resize(ctx)
-        }
+	result = present_image(ctx, index)
+	if result == .SUBOPTIMAL_KHR || result == .ERROR_OUT_OF_DATE_KHR {
+		resize(ctx)
+	}
 
-        return result != .SUCCESS
+	return result != .SUCCESS
 }
 
 //endregion Interface
@@ -89,144 +87,153 @@ update :: proc(using ctx: ^Context) -> bool {
 //region Rendering
 
 acquire_image :: proc(using ctx: ^Context, image: ^u32) -> vk.Result {
-        signaled_semaphore := perframes[image^].image_available
+	signaled_semaphore := perframes[image^].image_available
 
-        result := vk.AcquireNextImageKHR(device, swapchain.handle, max(u64), perframes[image^].image_available, 0, image)
-        if (result != .SUCCESS && result != .SUBOPTIMAL_KHR) {
-                return result
-        }
+	result := vk.AcquireNextImageKHR(
+		device,
+		swapchain.handle,
+		max(u64),
+		perframes[image^].image_available,
+		0,
+		image,
+	)
+	if (result != .SUCCESS && result != .SUBOPTIMAL_KHR) {
+		return result
+	}
 
-        // If we have outstanding fences for this swapchain image, wait for them to complete first.
-        // After begin frame returns, it is safe to reuse or delete resources which
-        // were used previously.
-        //
-        // We wait for fences which completes N frames earlier, so we do not stall,
-        // waiting for all GPU work to complete before this returns.
-        // Normally, this doesn't really block at all,
-        // since we're waiting for old frames to have been completed, but just in case.
+	// If we have outstanding fences for this swapchain image, wait for them to complete first.
+	// After begin frame returns, it is safe to reuse or delete resources which
+	// were used previously.
+	//
+	// We wait for fences which completes N frames earlier, so we do not stall,
+	// waiting for all GPU work to complete before this returns.
+	// Normally, this doesn't really block at all,
+	// since we're waiting for old frames to have been completed, but just in case.
 
-        if perframes[image^].in_flight_fence != 0 {
-                fences := []vk.Fence{ perframes[image^].in_flight_fence }
-                vk.WaitForFences(device, 1, raw_data(fences), true, max(u64)) or_return
-                vk.ResetFences(device, 1, raw_data(fences)) or_return
-        }
+	if perframes[image^].in_flight_fence != 0 {
+		fences := []vk.Fence{perframes[image^].in_flight_fence}
+		vk.WaitForFences(device, 1, raw_data(fences), true, max(u64)) or_return
+		vk.ResetFences(device, 1, raw_data(fences)) or_return
+	}
 
-        if perframes[image^].command_pool != 0 {
-                vk.ResetCommandPool(device, perframes[image^].command_pool, {}) or_return
-        }
+	if perframes[image^].command_pool != 0 {
+		vk.ResetCommandPool(device, perframes[image^].command_pool, {}) or_return
+	}
 
-        perframes[image^].image_available = signaled_semaphore
+	perframes[image^].image_available = signaled_semaphore
 
-        return .SUCCESS
+	return .SUCCESS
 }
 
 draw :: proc(using ctx: ^Context, index: u32) -> vk.Result {
 
-        cmd := perframes[index].command_buffer
+	cmd := perframes[index].command_buffer
 
-        begin_info : vk.CommandBufferBeginInfo = {
-                sType = .COMMAND_BUFFER_BEGIN_INFO,
-                flags = { .ONE_TIME_SUBMIT },
-        }
+	begin_info: vk.CommandBufferBeginInfo = {
+		sType = .COMMAND_BUFFER_BEGIN_INFO,
+		flags = {.ONE_TIME_SUBMIT},
+	}
 
-        vk.BeginCommandBuffer(cmd, &begin_info)
+	vk.BeginCommandBuffer(cmd, &begin_info)
 
-        clear_value: vk.ClearValue = { color = {
-                float32 = [4]f32{0.01, 0.01, 0.033, 1.0},
-        }}
+	clear_value: vk.ClearValue = {
+		color = {float32 = [4]f32{0.01, 0.01, 0.033, 1.0}},
+	}
 
-        framebuffer: vk.Framebuffer = swapchain.framebuffers[index]
+	framebuffer: vk.Framebuffer = swapchain.framebuffers[index]
 
-        rp_begin: vk.RenderPassBeginInfo = {
-                sType = .RENDER_PASS_BEGIN_INFO,
-                renderPass = pipeline.render_pass,
-                framebuffer = framebuffer,
-                renderArea = { extent = swapchain.extent },
-                clearValueCount = 1,
-                pClearValues = &clear_value,
-        }
+	rp_begin: vk.RenderPassBeginInfo = {
+		sType = .RENDER_PASS_BEGIN_INFO,
+		renderPass = pipeline.render_pass,
+		framebuffer = framebuffer,
+		renderArea = {extent = swapchain.extent},
+		clearValueCount = 1,
+		pClearValues = &clear_value,
+	}
 
-        vk.CmdBeginRenderPass(cmd, &rp_begin, vk.SubpassContents.INLINE)
+	vk.CmdBeginRenderPass(cmd, &rp_begin, vk.SubpassContents.INLINE)
 
-        vk.CmdBindPipeline(cmd, vk.PipelineBindPoint.GRAPHICS, pipeline.handle)
+	vk.CmdBindPipeline(cmd, vk.PipelineBindPoint.GRAPHICS, pipeline.handle)
 
-        offsets := raw_data([]vk.DeviceSize { 0 })
-        vk.CmdBindVertexBuffers(cmd, 0, 1, &vertex_buffer.buffer, offsets)
+	offsets := raw_data([]vk.DeviceSize{0})
+	vk.CmdBindVertexBuffers(cmd, 0, 1, &vertex_buffer.buffer, offsets)
 
-        viewport: vk.Viewport = {
-                width = f32(swapchain.extent.width),
-                height = f32(swapchain.extent.height),
-                minDepth = 0,
-                maxDepth = 1,
-        }
+	viewport: vk.Viewport = {
+		width    = f32(swapchain.extent.width),
+		height   = f32(swapchain.extent.height),
+		minDepth = 0,
+		maxDepth = 1,
+	}
 
-        vk.CmdSetViewport(cmd, 0, 1, &viewport)
+	vk.CmdSetViewport(cmd, 0, 1, &viewport)
 
-        scissor: vk.Rect2D = { extent = swapchain.extent }
+	scissor: vk.Rect2D = {
+		extent = swapchain.extent,
+	}
 
-        vk.CmdSetScissor(cmd, 0, 1, &scissor)
+	vk.CmdSetScissor(cmd, 0, 1, &scissor)
 
-        vk.CmdDraw(cmd, vertex_buffer.item_count, 1, 0, 0)
+	vk.CmdDraw(cmd, vertex_buffer.item_count, 1, 0, 0)
 
-        vk.CmdEndRenderPass(cmd)
+	vk.CmdEndRenderPass(cmd)
 
-        vk.EndCommandBuffer(cmd) or_return
+	vk.EndCommandBuffer(cmd) or_return
 
-        wait_stage: vk.PipelineStageFlags = { .COLOR_ATTACHMENT_OUTPUT }
+	wait_stage: vk.PipelineStageFlags = {.COLOR_ATTACHMENT_OUTPUT}
 
-        submit_info: vk.SubmitInfo = {
-                sType = .SUBMIT_INFO,
-                commandBufferCount = 1,
-                pCommandBuffers = &cmd,
-                waitSemaphoreCount = 1,
-                pWaitSemaphores = &perframes[index].image_available,
-                pWaitDstStageMask = &wait_stage,
-                signalSemaphoreCount = 1,
-                pSignalSemaphores = &perframes[index].render_finished,
-        }
+	submit_info: vk.SubmitInfo = {
+		sType                = .SUBMIT_INFO,
+		commandBufferCount   = 1,
+		pCommandBuffers      = &cmd,
+		waitSemaphoreCount   = 1,
+		pWaitSemaphores      = &perframes[index].image_available,
+		pWaitDstStageMask    = &wait_stage,
+		signalSemaphoreCount = 1,
+		pSignalSemaphores    = &perframes[index].render_finished,
+	}
 
-        vk.QueueSubmit(queues[.GRAPHICS], 1, &submit_info, perframes[index].in_flight_fence)
-        return .SUCCESS
+	vk.QueueSubmit(queues[.GRAPHICS], 1, &submit_info, perframes[index].in_flight_fence)
+	return .SUCCESS
 }
 
 present_image :: proc(using ctx: ^Context, index: u32) -> vk.Result {
-        i := index
+	i := index
 
-        present_info: vk.PresentInfoKHR = {
-                sType = .PRESENT_INFO_KHR,
-                swapchainCount = 1,
-                pSwapchains = &swapchain.handle,
-                pImageIndices = &i,
-                waitSemaphoreCount = 1,
-                pWaitSemaphores = &perframes[index].render_finished,
-        }
+	present_info: vk.PresentInfoKHR = {
+		sType              = .PRESENT_INFO_KHR,
+		swapchainCount     = 1,
+		pSwapchains        = &swapchain.handle,
+		pImageIndices      = &i,
+		waitSemaphoreCount = 1,
+		pWaitSemaphores    = &perframes[index].render_finished,
+	}
 
-        return vk.QueuePresentKHR(queues[.PRESENT], &present_info)
+	return vk.QueuePresentKHR(queues[.PRESENT], &present_info)
 }
 
 resize :: proc(using ctx: ^Context) -> bool {
-        log.debugf("Resizing")
+	log.debugf("Resizing")
 
-        if device == nil do return false
+	if device == nil do return false
 
-        surface_properties: vk.SurfaceCapabilitiesKHR
-        vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(gpu, surface, &surface_properties)
+	surface_properties: vk.SurfaceCapabilitiesKHR
+	vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(gpu, surface, &surface_properties)
 
-        if surface_properties.currentExtent == swapchain.extent do return false
+	if surface_properties.currentExtent == swapchain.extent do return false
 
-        for x, y := glfw.GetFramebufferSize(ctx.window); x == 0 && y == 0; {
-                x, y = glfw.GetFramebufferSize(ctx.window)
-                glfw.WaitEvents()
-        }
+	for x, y := glfw.GetFramebufferSize(ctx.window); x == 0 && y == 0; {
+		x, y = glfw.GetFramebufferSize(ctx.window)
+		glfw.WaitEvents()
+	}
 
-        vk.DeviceWaitIdle(device)
+	vk.DeviceWaitIdle(device)
 
-        cleanup_swapchain_framebuffers(ctx)
+	cleanup_swapchain_framebuffers(ctx)
 
-        init_swapchain(ctx)
-        init_swapchain_framebuffers(ctx)
+	init_swapchain(ctx)
+	init_swapchain_framebuffers(ctx)
 
-        return true
+	return true
 }
 
 //endregion Rendering
@@ -234,370 +241,385 @@ resize :: proc(using ctx: ^Context) -> bool {
 //region Initialization functions 
 
 init :: proc() -> (ctx: Context) {
-        init_all(&ctx)
-        return
+	init_all(&ctx)
+	return
 }
 
 init_all :: proc(using ctx: ^Context) {
-        init_window(ctx)
+	init_window(ctx)
 
-        // Vulkan does not come loaded into Odin by default, 
-        // so we need to begin by loading Vulkan's functions at runtime.
-        // This can be achieved using glfw's GetInstanceProcAddress function.
-        // the non-overloaded function is used to leverage auto_cast and avoid
-        // funky rawptr type stuff.
-        vk.load_proc_addresses_global(auto_cast glfw.GetInstanceProcAddress);
+	// Vulkan does not come loaded into Odin by default, 
+	// so we need to begin by loading Vulkan's functions at runtime.
+	// This can be achieved using glfw's GetInstanceProcAddress function.
+	// the non-overloaded function is used to leverage auto_cast and avoid
+	// funky rawptr type stuff.
+	vk.load_proc_addresses_global(auto_cast glfw.GetInstanceProcAddress)
 
-        // In order to get debug information while creating the 
-        // Vulkan instance, the DebugCreateInfo is passed as part of the
-        // InstanceCreateInfo.
-        debug_info : vk.DebugUtilsMessengerCreateInfoEXT = {
-                sType = vk.StructureType.DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
-                messageSeverity = vk.DebugUtilsMessageSeverityFlagsEXT {
-                        .WARNING,
-                        .ERROR,
-                },
-                messageType = vk.DebugUtilsMessageTypeFlagsEXT {
-                        .GENERAL,
-                        .PERFORMANCE,
-                        .VALIDATION,
-                },
-                pfnUserCallback = debug_messenger_callback,
-        }
+	// In order to get debug information while creating the 
+	// Vulkan instance, the DebugCreateInfo is passed as part of the
+	// InstanceCreateInfo.
+	debug_info: vk.DebugUtilsMessengerCreateInfoEXT = {
+		sType = vk.StructureType.DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+		messageSeverity = vk.DebugUtilsMessageSeverityFlagsEXT{.WARNING, .ERROR},
+		messageType = vk.DebugUtilsMessageTypeFlagsEXT{.GENERAL, .PERFORMANCE, .VALIDATION},
+		pfnUserCallback = debug_messenger_callback,
+	}
 
-        // Create Instance
-        result: vk.Result
-        result = init_vulkan_instance(ctx, &debug_info)
-        error_check(result)
+	// Create Instance
+	result: vk.Result
+	result = init_vulkan_instance(ctx, &debug_info)
+	error_check(result)
 
-        // Load the rest of Vulkan's functions.
-        vk.load_proc_addresses(instance)
+	// Load the rest of Vulkan's functions.
+	vk.load_proc_addresses(instance)
 
-        result = vk.CreateDebugUtilsMessengerEXT(instance, &debug_info, nil, &debug_messenger)
-        error_check(result)
+	result = vk.CreateDebugUtilsMessengerEXT(instance, &debug_info, nil, &debug_messenger)
+	error_check(result)
 
-        result = init_physical_device_and_surface(ctx)
-        error_check(result)
+	result = init_physical_device_and_surface(ctx)
+	error_check(result)
 
-        result = init_logical_device(ctx)
-        error_check(result)
+	result = init_logical_device(ctx)
+	error_check(result)
 
-        result = init_allocator(ctx)
-        error_check(result)
+	result = init_allocator(ctx)
+	error_check(result)
 
-        result = init_swapchain(ctx)
-        error_check(result)
+	result = init_swapchain(ctx)
+	error_check(result)
 
-        result = init_perframes(ctx)
-        error_check(result)
+	result = init_perframes(ctx)
+	error_check(result)
 
-        result = create_render_pass(ctx)
-        error_check(result)
+	result = create_render_pass(ctx)
+	error_check(result)
 
-        result = create_pipeline(ctx)
-        error_check(result)
+	result = create_pipeline(ctx)
+	error_check(result)
 
-        result = init_swapchain_framebuffers(ctx)
-        error_check(result)
+	result = init_swapchain_framebuffers(ctx)
+	error_check(result)
 
-        result = init_upload_context(ctx)
-        error_check(result)
+	result = init_upload_context(ctx)
+	error_check(result)
 
-        result = init_vertex_buffer(ctx)
-        error_check(result)
+	result = init_vertex_buffer(ctx)
+	error_check(result)
 }
 
 init_window :: proc(using ctx: ^Context) {
-        glfw.SetErrorCallback(error_callback)
-        glfw.Init()
+	glfw.SetErrorCallback(error_callback)
+	glfw.Init()
 
-        glfw.WindowHint(glfw.CLIENT_API, glfw.NO_API);
+	glfw.WindowHint(glfw.CLIENT_API, glfw.NO_API)
 
-        window = glfw.CreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE, nil, nil);
-        
-        if (!glfw.VulkanSupported()) {
-                panic("Vulkan not supported!")
-        }
+	window = glfw.CreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE, nil, nil)
+
+	if (!glfw.VulkanSupported()) {
+		panic("Vulkan not supported!")
+	}
 }
 
-init_vulkan_instance :: proc(using ctx: ^Context, debug_create_info: ^vk.DebugUtilsMessengerCreateInfoEXT) -> vk.Result {
-        application_info: vk.ApplicationInfo = {
-                sType = vk.StructureType.APPLICATION_INFO,
-                pApplicationName = "Untitled",
-                pEngineName = "Odinpi",
-                apiVersion = vk.API_VERSION_1_3,
-        }
+init_vulkan_instance :: proc(
+	using ctx: ^Context,
+	debug_create_info: ^vk.DebugUtilsMessengerCreateInfoEXT,
+) -> vk.Result {
+	application_info: vk.ApplicationInfo = {
+		sType            = vk.StructureType.APPLICATION_INFO,
+		pApplicationName = "Untitled",
+		pEngineName      = "Odinpi",
+		apiVersion       = vk.API_VERSION_1_3,
+	}
 
-        // Available Extensions
+	// Available Extensions
 	count: u32
 	vk.EnumerateInstanceExtensionProperties(nil, &count, nil) or_return
 	extensions := make([]vk.ExtensionProperties, count)
-        defer delete(extensions)
+	defer delete(extensions)
 	vk.EnumerateInstanceExtensionProperties(nil, &count, raw_data(extensions)) or_return
 
-        // Required Extensions
-        required_extensions: [dynamic]cstring
-        defer delete(required_extensions)
-        glfw_required_extensions := glfw.GetRequiredInstanceExtensions()
-        append(&required_extensions, ..glfw_required_extensions)
-        append(&required_extensions, vk.EXT_DEBUG_UTILS_EXTENSION_NAME)
+	// Required Extensions
+	required_extensions: [dynamic]cstring
+	defer delete(required_extensions)
+	glfw_required_extensions := glfw.GetRequiredInstanceExtensions()
+	append(&required_extensions, ..glfw_required_extensions)
+	append(&required_extensions, vk.EXT_DEBUG_UTILS_EXTENSION_NAME)
 
-        for required_extension in required_extensions {
-                found := false
-                for extension in extensions {
-                        e := extension
-                        extension_name := cstring(raw_data(&e.extensionName))
-                        if required_extension == extension_name {
-                                found = true
-                                break
-                        }
-                }
-                fmt.assertf(found, "%s not found", required_extension)
-        }
+	for required_extension in required_extensions {
+		found := false
+		for extension in extensions {
+			e := extension
+			extension_name := cstring(raw_data(&e.extensionName))
+			if required_extension == extension_name {
+				found = true
+				break
+			}
+		}
+		fmt.assertf(found, "%s not found", required_extension)
+	}
 
-        // Enabled Layers
-        layers := []cstring { "VK_LAYER_KHRONOS_validation" }
+	// Enabled Layers
+	layers := []cstring{"VK_LAYER_KHRONOS_validation"}
 
-        log.info("Enabled Extensions: ")
-        for extension in required_extensions do log.infof("%s ", extension)
+	log.info("Enabled Extensions: ")
+	for extension in required_extensions do log.infof("%s ", extension)
 
-        log.info("Enabled Layers: ")
-        for layer in layers do log.infof("%s ", layer)
+	log.info("Enabled Layers: ")
+	for layer in layers do log.infof("%s ", layer)
 
-        instance_create_info: vk.InstanceCreateInfo = {
-                sType = vk.StructureType.INSTANCE_CREATE_INFO,
-                flags = nil,
-                enabledExtensionCount = u32(len(required_extensions)),
-                ppEnabledExtensionNames = raw_data(required_extensions),
-                enabledLayerCount = u32(len(layers)),
-                ppEnabledLayerNames = raw_data(layers),
-                pApplicationInfo = &application_info,
-                pNext = debug_create_info,
-        }
+	instance_create_info: vk.InstanceCreateInfo = {
+		sType                   = vk.StructureType.INSTANCE_CREATE_INFO,
+		flags                   = nil,
+		enabledExtensionCount   = u32(len(required_extensions)),
+		ppEnabledExtensionNames = raw_data(required_extensions),
+		enabledLayerCount       = u32(len(layers)),
+		ppEnabledLayerNames     = raw_data(layers),
+		pApplicationInfo        = &application_info,
+		pNext                   = debug_create_info,
+	}
 
-        vk.CreateInstance(&instance_create_info, nil, &instance) or_return
+	vk.CreateInstance(&instance_create_info, nil, &instance) or_return
 
-        return .SUCCESS
+	return .SUCCESS
 }
 
 init_physical_device_and_surface :: proc(using ctx: ^Context) -> vk.Result {
-        count: u32
-        vk.EnumeratePhysicalDevices(instance, &count, nil) or_return
-        devices := make([]vk.PhysicalDevice, count)
-        defer delete(devices)
-        vk.EnumeratePhysicalDevices(instance, &count, raw_data(devices)) or_return
+	count: u32
+	vk.EnumeratePhysicalDevices(instance, &count, nil) or_return
+	devices := make([]vk.PhysicalDevice, count)
+	defer delete(devices)
+	vk.EnumeratePhysicalDevices(instance, &count, raw_data(devices)) or_return
 
-        for physical_device in devices {
-                // Properties
-                properties: vk.PhysicalDeviceProperties
-                vk.GetPhysicalDeviceProperties(physical_device, &properties)
+	for physical_device in devices {
+		// Properties
+		properties: vk.PhysicalDeviceProperties
+		vk.GetPhysicalDeviceProperties(physical_device, &properties)
 
-                if surface != 0 {
-                        vk.DestroySurfaceKHR(instance, surface, nil)
-                }
+		if surface != 0 {
+			vk.DestroySurfaceKHR(instance, surface, nil)
+		}
 
-                glfw.CreateWindowSurface(instance, window, nil, &ctx.surface)
+		glfw.CreateWindowSurface(instance, window, nil, &ctx.surface)
 
-                // Locate a device with the GRAPHICS queue flag
-                // as well as surface support.
-                vk.GetPhysicalDeviceQueueFamilyProperties(physical_device, &count, nil)
-                queue_family_properties := make([]vk.QueueFamilyProperties, count)
-                defer delete(queue_family_properties)
-                vk.GetPhysicalDeviceQueueFamilyProperties(physical_device, &count, raw_data(queue_family_properties))
+		// Locate a device with the GRAPHICS queue flag
+		// as well as surface support.
+		vk.GetPhysicalDeviceQueueFamilyProperties(physical_device, &count, nil)
+		queue_family_properties := make([]vk.QueueFamilyProperties, count)
+		defer delete(queue_family_properties)
+		vk.GetPhysicalDeviceQueueFamilyProperties(
+			physical_device,
+			&count,
+			raw_data(queue_family_properties),
+		)
 
-                queue_indices[.GRAPHICS] = -1;
-                queue_indices[.PRESENT] = -1;
+		queue_indices[.GRAPHICS] = -1
+		queue_indices[.PRESENT] = -1
 
-                for queue, index in queue_family_properties {
-                        supported: b32
-                        vk.GetPhysicalDeviceSurfaceSupportKHR(physical_device, u32(index), surface, &supported) or_return
-                        if queue_indices[.PRESENT] == -1 && supported {
-                                queue_indices[.PRESENT] = index
-                        }
+		for queue, index in queue_family_properties {
+			supported: b32
+			vk.GetPhysicalDeviceSurfaceSupportKHR(
+				physical_device,
+				u32(index),
+				surface,
+				&supported,
+			) or_return
+			if queue_indices[.PRESENT] == -1 && supported {
+				queue_indices[.PRESENT] = index
+			}
 
-                        if queue_indices[.GRAPHICS] == -1 && .GRAPHICS in queue.queueFlags {
-                                queue_indices[.GRAPHICS] = index
-                        }
-                }
-                log.info("Enabled GPU: %s\n", cstring(raw_data(&properties.deviceName)))
-                gpu = physical_device
-                break
-        }
-        return .SUCCESS
+			if queue_indices[.GRAPHICS] == -1 && .GRAPHICS in queue.queueFlags {
+				queue_indices[.GRAPHICS] = index
+			}
+		}
+		log.info("Enabled GPU: %s\n", cstring(raw_data(&properties.deviceName)))
+		gpu = physical_device
+		break
+	}
+	return .SUCCESS
 }
 
 init_logical_device :: proc(using ctx: ^Context) -> vk.Result {
-        count: u32
-        vk.EnumerateDeviceExtensionProperties(gpu, nil, &count, nil) or_return
-        extensions := make([]vk.ExtensionProperties, count)
-        defer delete(extensions)
-        vk.EnumerateDeviceExtensionProperties(gpu, nil, &count, raw_data(extensions)) or_return
+	count: u32
+	vk.EnumerateDeviceExtensionProperties(gpu, nil, &count, nil) or_return
+	extensions := make([]vk.ExtensionProperties, count)
+	defer delete(extensions)
+	vk.EnumerateDeviceExtensionProperties(gpu, nil, &count, raw_data(extensions)) or_return
 
-        required_extensions := make([dynamic]cstring, 0, 2)
-        defer delete(required_extensions)
+	required_extensions := make([dynamic]cstring, 0, 2)
+	defer delete(required_extensions)
 
 
-        // If portability subset is found in device extensions,
-        // it must be enabled.
-        portability_found := false
-        for extension in extensions {
-                e := extension
-                switch(cstring(raw_data(&e.extensionName))) {
-                        case "VK_KHR_portability_subset":
-                                portability_found = true
-                                break
+	// If portability subset is found in device extensions,
+	// it must be enabled.
+	portability_found := false
+	for extension in extensions {
+		e := extension
+		switch (cstring(raw_data(&e.extensionName))) {
+		case "VK_KHR_portability_subset":
+			portability_found = true
+			break
 
-                }
-        }
+		}
+	}
 
-        if portability_found {
-                append(&required_extensions, "VK_KHR_portability_subset")
-        } 
+	if portability_found {
+		append(&required_extensions, "VK_KHR_portability_subset")
+	}
 
-        if swapchain_is_supported(gpu) {
-                append(&required_extensions, vk.KHR_SWAPCHAIN_EXTENSION_NAME)
-        } else {
-                fmt.panicf("Swapchain is not supported!\n")
-        }
+	if swapchain_is_supported(gpu) {
+		append(&required_extensions, vk.KHR_SWAPCHAIN_EXTENSION_NAME)
+	} else {
+		fmt.panicf("Swapchain is not supported!\n")
+	}
 
-        // Unused
-        queuePriority: f32 = 1
+	// Unused
+	queuePriority: f32 = 1
 
-        queue_create_info : vk.DeviceQueueCreateInfo = {
-                sType = vk.StructureType.DEVICE_QUEUE_CREATE_INFO,
-                queueFamilyIndex = u32(queue_indices[.GRAPHICS]),
-                queueCount = 1,
-                pQueuePriorities = &queuePriority,
-        }
+	queue_create_info: vk.DeviceQueueCreateInfo = {
+		sType            = vk.StructureType.DEVICE_QUEUE_CREATE_INFO,
+		queueFamilyIndex = u32(queue_indices[.GRAPHICS]),
+		queueCount       = 1,
+		pQueuePriorities = &queuePriority,
+	}
 
-        shader_features: vk.PhysicalDeviceShaderDrawParametersFeatures = {
-                sType = .PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES,
-                shaderDrawParameters = true,
-        }
+	shader_features: vk.PhysicalDeviceShaderDrawParametersFeatures = {
+		sType                = .PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES,
+		shaderDrawParameters = true,
+	}
 
-        device_create_info: vk.DeviceCreateInfo = {
-                sType = .DEVICE_CREATE_INFO,
-                enabledExtensionCount = u32(len(required_extensions)),
-                ppEnabledExtensionNames = raw_data(required_extensions),
-                queueCreateInfoCount = 1,
-                pQueueCreateInfos = &queue_create_info,
-                pNext = &shader_features,
-        }
+	device_create_info: vk.DeviceCreateInfo = {
+		sType                   = .DEVICE_CREATE_INFO,
+		enabledExtensionCount   = u32(len(required_extensions)),
+		ppEnabledExtensionNames = raw_data(required_extensions),
+		queueCreateInfoCount    = 1,
+		pQueueCreateInfos       = &queue_create_info,
+		pNext                   = &shader_features,
+	}
 
-        vk.CreateDevice(gpu, &device_create_info, nil, &device) or_return
+	vk.CreateDevice(gpu, &device_create_info, nil, &device) or_return
 
-        vk.GetDeviceQueue(device, u32(queue_indices[.GRAPHICS]), 0, &queues[.GRAPHICS])
-        vk.GetDeviceQueue(device, u32(queue_indices[.PRESENT]), 0, &queues[.PRESENT])
+	vk.GetDeviceQueue(device, u32(queue_indices[.GRAPHICS]), 0, &queues[.GRAPHICS])
+	vk.GetDeviceQueue(device, u32(queue_indices[.PRESENT]), 0, &queues[.PRESENT])
 
-        return .SUCCESS
+	return .SUCCESS
 }
 
 init_allocator :: proc(using ctx: ^Context) -> vk.Result {
-        vulkan_functions := vma.create_vulkan_functions()
+	vulkan_functions := vma.create_vulkan_functions()
 
-        create_info: vma.AllocatorCreateInfo = {
-                vulkanApiVersion = vk.API_VERSION_1_3,
-                physicalDevice = gpu,
-                device = device,
-                instance = instance,
-                pVulkanFunctions = &vulkan_functions,
-        }
+	create_info: vma.AllocatorCreateInfo = {
+		vulkanApiVersion = vk.API_VERSION_1_3,
+		physicalDevice   = gpu,
+		device           = device,
+		instance         = instance,
+		pVulkanFunctions = &vulkan_functions,
+	}
 
-        vma.CreateAllocator(&create_info, &allocator) or_return
-        return .SUCCESS
+	vma.CreateAllocator(&create_info, &allocator) or_return
+	return .SUCCESS
 }
 
 init_perframes :: proc(using ctx: ^Context) -> vk.Result {
-        perframes = make([]Perframe, len(ctx.swapchain.images))
+	perframes = make([]Perframe, len(ctx.swapchain.images))
 
-        for _, i in perframes {
-                p := &perframes[i]
-                p.queue_index = uint(i)
+	for _, i in perframes {
+		p := &perframes[i]
+		p.queue_index = uint(i)
 
-                create_info: vk.SemaphoreCreateInfo = { sType = .SEMAPHORE_CREATE_INFO }
-                vk.CreateSemaphore(device, &create_info, nil, &perframes[i].image_available)
-                vk.CreateSemaphore(device, &create_info, nil, &perframes[i].render_finished)
+		create_info: vk.SemaphoreCreateInfo = {
+			sType = .SEMAPHORE_CREATE_INFO,
+		}
+		vk.CreateSemaphore(device, &create_info, nil, &perframes[i].image_available)
+		vk.CreateSemaphore(device, &create_info, nil, &perframes[i].render_finished)
 
-                fence_info : vk.FenceCreateInfo = { .FENCE_CREATE_INFO, nil, { .SIGNALED } }
-                vk.CreateFence(device, &fence_info, nil, &p.in_flight_fence) or_return
+		fence_info: vk.FenceCreateInfo = {.FENCE_CREATE_INFO, nil, {.SIGNALED}}
+		vk.CreateFence(device, &fence_info, nil, &p.in_flight_fence) or_return
 
-                command_pool_create_info: vk.CommandPoolCreateInfo = {
-                        sType = .COMMAND_POOL_CREATE_INFO,
-                        flags = { .TRANSIENT, .RESET_COMMAND_BUFFER },
-                        queueFamilyIndex = u32(queue_indices[.GRAPHICS]),
-                }
+		command_pool_create_info: vk.CommandPoolCreateInfo = {
+			sType = .COMMAND_POOL_CREATE_INFO,
+			flags = {.TRANSIENT, .RESET_COMMAND_BUFFER},
+			queueFamilyIndex = u32(queue_indices[.GRAPHICS]),
+		}
 
-                vk.CreateCommandPool(device, &command_pool_create_info, nil, &p.command_pool) or_return
+		vk.CreateCommandPool(device, &command_pool_create_info, nil, &p.command_pool) or_return
 
-                command_buffer_info: vk.CommandBufferAllocateInfo = {
-                        sType = .COMMAND_BUFFER_ALLOCATE_INFO,
-                        commandPool = p.command_pool,
-                        level = .PRIMARY,
-                        commandBufferCount = 1,
-                }
+		command_buffer_info: vk.CommandBufferAllocateInfo = {
+			sType              = .COMMAND_BUFFER_ALLOCATE_INFO,
+			commandPool        = p.command_pool,
+			level              = .PRIMARY,
+			commandBufferCount = 1,
+		}
 
-                vk.AllocateCommandBuffers(device, &command_buffer_info, &p.command_buffer) or_return
+		vk.AllocateCommandBuffers(device, &command_buffer_info, &p.command_buffer) or_return
 
-        }
+	}
 
-        return .SUCCESS
+	return .SUCCESS
 }
 
-init_upload_context :: proc(using ctx: ^Context) -> 
-(result: vk.Result) {
+init_upload_context :: proc(using ctx: ^Context) -> (result: vk.Result) {
 
-        command_pool_info : vk.CommandPoolCreateInfo = {
-                sType = .COMMAND_POOL_CREATE_INFO,
-                flags = { .TRANSIENT, .RESET_COMMAND_BUFFER },
-        }
-        
-        vk.CreateCommandPool(device, &command_pool_info, nil, &upload_context.command_pool) or_return
+	command_pool_info: vk.CommandPoolCreateInfo = {
+		sType = .COMMAND_POOL_CREATE_INFO,
+		flags = {.TRANSIENT, .RESET_COMMAND_BUFFER},
+	}
 
-        command_buffer_info : vk.CommandBufferAllocateInfo = {
-                sType = .COMMAND_BUFFER_ALLOCATE_INFO,
-                level = .PRIMARY,
-                commandPool = upload_context.command_pool,
-                commandBufferCount = 1,
-        }
+	vk.CreateCommandPool(device, &command_pool_info, nil, &upload_context.command_pool) or_return
 
-        vk.AllocateCommandBuffers(device, &command_buffer_info, &upload_context.command_buffer) or_return
+	command_buffer_info: vk.CommandBufferAllocateInfo = {
+		sType              = .COMMAND_BUFFER_ALLOCATE_INFO,
+		level              = .PRIMARY,
+		commandPool        = upload_context.command_pool,
+		commandBufferCount = 1,
+	}
 
-        fence_info : vk.FenceCreateInfo = { }
-        vk.CreateFence(device, &fence_info, nil, &upload_context.fence)
+	vk.AllocateCommandBuffers(
+		device,
+		&command_buffer_info,
+		&upload_context.command_buffer,
+	) or_return
 
-        return .SUCCESS
+	fence_info: vk.FenceCreateInfo = { sType = .FENCE_CREATE_INFO }
+	vk.CreateFence(device, &fence_info, nil, &upload_context.fence)
+
+	return .SUCCESS
 }
 
 // Temporary
 init_vertex_buffer :: proc(using ctx: ^Context) -> vk.Result {
-        v := VERTICES
-        size : vk.DeviceSize = len(VERTICES) * size_of(Vertex)
-        staging_buffer := create_buffer(
-                ctx = ctx,
-                size = size,
-                usage = { .TRANSFER_SRC },
-                memory_flags = { .HOST_VISIBLE },
-        ) or_return
-        allocate_buffer(ctx, staging_buffer, &v)
+	v := VERTICES
+	size: vk.DeviceSize = len(VERTICES) * size_of(Vertex)
+	staging_buffer := create_buffer(
+		ctx = ctx,
+		size = size,
+		item_count = len(VERTICES),
+		usage = { .TRANSFER_SRC },
+		preferred_flags = { .HOST_ACCESS_SEQUENTIAL_WRITE, .MAPPED },
+		memory_flags = { .HOST_VISIBLE },
+	) or_return
+	error_check(allocate_buffer(ctx, staging_buffer, &v))
 
-        defer destroy_buffer(ctx, staging_buffer)
+	defer destroy_buffer(ctx, staging_buffer)
 
-        vertex_buffer = create_buffer(
-                ctx = ctx,
-                size = size,
-                usage = { .VERTEX_BUFFER, .TRANSFER_DST },
-                memory_flags = { .DEVICE_LOCAL },
-        ) or_return
+	vertex_buffer = create_buffer(
+		ctx = ctx,
+		size = size,
+		item_count = len(VERTICES),
+		usage = {.VERTEX_BUFFER, .TRANSFER_DST},
+		preferred_flags = { .DEDICATED_MEMORY },
+	) or_return
 
-        cmd := begin_upload(ctx) or_return
+	cmd := begin_upload(ctx) or_return
 
-        copy_region: vk.BufferCopy = { size = size }
-        vk.CmdCopyBuffer(cmd, staging_buffer.buffer, vertex_buffer.buffer, 1, &copy_region)
+	copy_region: vk.BufferCopy = {
+		size = size,
+	}
+	vk.CmdCopyBuffer(cmd, staging_buffer.buffer, vertex_buffer.buffer, 1, &copy_region)
 
-        end_upload(ctx) or_return
+	end_upload(ctx) or_return
 
 
-        return .SUCCESS
+	return .SUCCESS
 }
 
 //endregion Initialization functions
@@ -605,115 +627,118 @@ init_vertex_buffer :: proc(using ctx: ^Context) -> vk.Result {
 //region Cleanup functions
 
 cleanup :: proc(using ctx: ^Context) {
-        vk.DeviceWaitIdle(device)
+	vk.DeviceWaitIdle(device)
 
-        destroy_buffer(ctx, vertex_buffer)
+	destroy_buffer(ctx, vertex_buffer)
 
-        cleanup_upload_context(ctx)
-        cleanup_perframes(ctx)
-        cleanup_pipeline(ctx)
-        cleanup_swapchain(ctx)
+	cleanup_upload_context(ctx)
+	cleanup_perframes(ctx)
+	cleanup_pipeline(ctx)
+	cleanup_swapchain(ctx)
 
-        vk.DestroySurfaceKHR(instance, surface, nil)
-        vk.DestroyDebugUtilsMessengerEXT(instance, debug_messenger, nil)
-        vk.DestroyInstance(nil, nil)
+	vk.DestroySurfaceKHR(instance, surface, nil)
+	vk.DestroyDebugUtilsMessengerEXT(instance, debug_messenger, nil)
+	vk.DestroyInstance(nil, nil)
 
-        glfw.DestroyWindow(window)
-        glfw.Terminate()
+	glfw.DestroyWindow(window)
+	glfw.Terminate()
 }
 
 cleanup_perframes :: proc(using ctx: ^Context) {
-        for perframe in perframes {
-                vk.DestroyCommandPool(device, perframe.command_pool, nil)
-                vk.DestroyFence(device, perframe.in_flight_fence, nil)
-                vk.DestroySemaphore(device, perframe.render_finished, nil)
-        }
-        delete(perframes)
+	for perframe in perframes {
+		vk.DestroyCommandPool(device, perframe.command_pool, nil)
+		vk.DestroyFence(device, perframe.in_flight_fence, nil)
+		vk.DestroySemaphore(device, perframe.render_finished, nil)
+	}
+	delete(perframes)
 }
 
 cleanup_upload_context :: proc(using ctx: ^Context) {
-        vk.DestroyCommandPool(device, upload_context.command_pool, nil)
-        vk.DestroyFence(device, upload_context.fence, nil)
+	vk.DestroyCommandPool(device, upload_context.command_pool, nil)
+	vk.DestroyFence(device, upload_context.fence, nil)
 }
 
 //endregion Cleanup functions
 
 //region Upload Context
 
-begin_upload :: proc(using ctx: ^Context) ->
-(cmd: vk.CommandBuffer, result: vk.Result) {
-        begin_info: vk.CommandBufferBeginInfo = {
-                sType = .COMMAND_BUFFER_BEGIN_INFO,
-                flags = { .ONE_TIME_SUBMIT },
-        }
+begin_upload :: proc(using ctx: ^Context) -> (cmd: vk.CommandBuffer, result: vk.Result) {
+	begin_info: vk.CommandBufferBeginInfo = {
+		sType = .COMMAND_BUFFER_BEGIN_INFO,
+		flags = {.ONE_TIME_SUBMIT},
+	}
 
-        vk.BeginCommandBuffer(upload_context.command_buffer, &begin_info) or_return
-        return upload_context.command_buffer, .SUCCESS
+	vk.BeginCommandBuffer(upload_context.command_buffer, &begin_info) or_return
+	return upload_context.command_buffer, .SUCCESS
 }
 
-end_upload :: proc(using ctx: ^Context) -> vk.Result  {
-        cmd := upload_context.command_buffer
+end_upload :: proc(using ctx: ^Context) -> vk.Result {
+	cmd := upload_context.command_buffer
 
-        vk.EndCommandBuffer(cmd) or_return
+	vk.EndCommandBuffer(cmd) or_return
 
-        submit_info : vk.SubmitInfo = {
-                sType = .SUBMIT_INFO,
-                commandBufferCount = 1,
-                pCommandBuffers = &cmd,
-        }
+	submit_info: vk.SubmitInfo = {
+		sType              = .SUBMIT_INFO,
+		commandBufferCount = 1,
+		pCommandBuffers    = &cmd,
+	}
 
-        vk.QueueSubmit(queues[.GRAPHICS], 1, &submit_info, upload_context.fence) or_return
-        vk.WaitForFences(device, 1, &upload_context.fence, true, max(u64)) or_return
-        vk.ResetFences(device, 1, &upload_context.fence) or_return
+	vk.QueueSubmit(queues[.GRAPHICS], 1, &submit_info, upload_context.fence) or_return
+	vk.WaitForFences(device, 1, &upload_context.fence, true, max(u64)) or_return
+	vk.ResetFences(device, 1, &upload_context.fence) or_return
 
-        return .SUCCESS
+	vk.ResetCommandPool(device, upload_context.command_pool, {}) or_return
+
+	return .SUCCESS
 }
+
 //endregion Upload Context
 
 //region Debug
 
 debug_messenger_callback :: proc "system" (
-messageSeverity: vk.DebugUtilsMessageSeverityFlagsEXT,
-messageTypes: vk.DebugUtilsMessageTypeFlagsEXT,
-pCallbackData: ^vk.DebugUtilsMessengerCallbackDataEXT,
-pUserData: rawptr) -> b32 {
-        context = runtime.default_context()
+	messageSeverity: vk.DebugUtilsMessageSeverityFlagsEXT,
+	messageTypes: vk.DebugUtilsMessageTypeFlagsEXT,
+	pCallbackData: ^vk.DebugUtilsMessengerCallbackDataEXT,
+	pUserData: rawptr,
+) -> b32 {
+	context = runtime.default_context()
 
-        fmt.printf("%v: %v:\n", messageSeverity, messageTypes)
-        fmt.printf("\tmessageIDName   = <%v>\n", pCallbackData.pMessageIdName)
-        fmt.printf("\tmessageIDNumber = <%v>\n", pCallbackData.messageIdNumber)
-        fmt.printf("\tmessage         = <%v>\n", pCallbackData.pMessage)
+	fmt.printf("%v: %v:\n", messageSeverity, messageTypes)
+	fmt.printf("\tmessageIDName   = <%v>\n", pCallbackData.pMessageIdName)
+	fmt.printf("\tmessageIDNumber = <%v>\n", pCallbackData.messageIdNumber)
+	fmt.printf("\tmessage         = <%v>\n", pCallbackData.pMessage)
 
-        if 0 < pCallbackData.queueLabelCount {
-                fmt.printf("\tQueue Labels: \n")
-                for i in 0..<pCallbackData.queueLabelCount {
-                        fmt.printf("\t\tlabelName = <%v>\n", pCallbackData.pQueueLabels[i].pLabelName)
-                }
-        }
-        if 0 < pCallbackData.cmdBufLabelCount {
-                fmt.printf("\tCommandBuffer Labels: \n")
-                for i in 0..<pCallbackData.cmdBufLabelCount {
-                        fmt.printf("\t\tlabelName = <%v>\n", pCallbackData.pCmdBufLabels[i].pLabelName)
-                }
-        }
-        if 0 < pCallbackData.objectCount {
-                fmt.printf("Objects:\n")
-                for i in 0..<pCallbackData.objectCount {
-                        fmt.printf("\t\tObject %d\n", pCallbackData.pObjects[i].objectType)
-                        fmt.printf("\t\t\tobjectType   = %s\n", pCallbackData.pObjects[i].objectType)
-                        fmt.printf("\t\t\tobjectHandle = %d\n", pCallbackData.pObjects[i].objectHandle)
-                        if pCallbackData.pObjects[i].pObjectName != nil {
-                                fmt.printf("\t\t\tobjectName   = <%v>\n", pCallbackData.pObjects[i].pObjectName)
-                        }
-                }
-        }
-        return true
+	if 0 < pCallbackData.queueLabelCount {
+		fmt.printf("\tQueue Labels: \n")
+		for i in 0 ..< pCallbackData.queueLabelCount {
+			fmt.printf("\t\tlabelName = <%v>\n", pCallbackData.pQueueLabels[i].pLabelName)
+		}
+	}
+	if 0 < pCallbackData.cmdBufLabelCount {
+		fmt.printf("\tCommandBuffer Labels: \n")
+		for i in 0 ..< pCallbackData.cmdBufLabelCount {
+			fmt.printf("\t\tlabelName = <%v>\n", pCallbackData.pCmdBufLabels[i].pLabelName)
+		}
+	}
+	if 0 < pCallbackData.objectCount {
+		fmt.printf("Objects:\n")
+		for i in 0 ..< pCallbackData.objectCount {
+			fmt.printf("\t\tObject %d\n", pCallbackData.pObjects[i].objectType)
+			fmt.printf("\t\t\tobjectType   = %s\n", pCallbackData.pObjects[i].objectType)
+			fmt.printf("\t\t\tobjectHandle = %d\n", pCallbackData.pObjects[i].objectHandle)
+			if pCallbackData.pObjects[i].pObjectName != nil {
+				fmt.printf("\t\t\tobjectName   = <%v>\n", pCallbackData.pObjects[i].pObjectName)
+			}
+		}
+	}
+	return true
 }
 
 error_check :: proc(result: vk.Result) {
-        if (result != .SUCCESS) {
-                log.error("VULKAN: %s\n", result)
-        }
+	if (result != .SUCCESS) {
+		log.error("VULKAN: %s\n", result)
+	}
 }
 
 error_callback :: proc "c" (code: i32, desc: cstring) {
