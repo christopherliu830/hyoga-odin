@@ -1,8 +1,9 @@
 package main
 
-import "core:fmt"
 import "graphics"
 import "vendor:glfw"
+
+DEBUG :: true
 
 main :: proc () {
         using ctx := graphics.init()

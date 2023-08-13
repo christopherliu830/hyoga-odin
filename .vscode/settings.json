@@ -4,6 +4,7 @@
     },
     "terminal.integrated.env.windows": {
         "MSYSTEM": "UCRT64",
+        "MSYS2_PATH_TYPE": "inherit",
         "CHERE_INVOKING": "1"
     },
     "terminal.integrated.profiles.windows": {
@@ -13,5 +14,5 @@
             "icon": "terminal-bash"
         },
     },
-    "terminal.integrated.defaultProfile.windows": "ucrt64"
+    "terminal.integrated.defaultProfile.windows": "ucrt64",
 }

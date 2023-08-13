@@ -10,21 +10,20 @@ Buffer :: struct {
         buffer_size: vk.DeviceSize,
 }
 
-
 create_buffer :: proc(
-device: vk.Device,
-gpu: vk.PhysicalDevice,
-item_size: u32,
-count: u32) ->
+        using ctx: ^Context,
+        size: vk.DeviceSize,
+        usage: vk.BufferUsageFlags,
+        memory_flags: vk.MemoryPropertyFlags,
+) ->
 (buffer: Buffer, result: vk.Result) {
 
-        buffer.item_count = count
-        buffer.buffer_size = vk.DeviceSize(item_size * count)
+        buffer.buffer_size = size
 
         buffer_info: vk.BufferCreateInfo = {
                 sType = .BUFFER_CREATE_INFO,
-                size = vk.DeviceSize(item_size * count),
-                usage = { .VERTEX_BUFFER },
+                size = size,
+                usage = usage,
                 sharingMode = .EXCLUSIVE,
         }
 
@@ -36,7 +35,7 @@ count: u32) ->
         allocate_info: vk.MemoryAllocateInfo = {
                 sType = .MEMORY_ALLOCATE_INFO,
                 allocationSize = requirements.size,
-                memoryTypeIndex = find_memory_type(gpu, { .HOST_VISIBLE })
+                memoryTypeIndex = find_memory_type(gpu, memory_flags),
         }
 
         vk.AllocateMemory(device, &allocate_info, nil, &buffer.memory) or_return
@@ -46,13 +45,13 @@ count: u32) ->
 }
 
 // Map CPU memory into buffer.
-allocate_buffer :: proc(device: vk.Device, buffer: Buffer, data: rawptr) -> vk.Result {
+allocate_buffer :: proc(using ctx: ^Context, buffer: Buffer, data: rawptr) -> vk.Result {
         mapped_ptr : rawptr
 
         vk.MapMemory(device, buffer.memory, 0, buffer.buffer_size, {}, &mapped_ptr)
 
         mem.copy(mapped_ptr, data, int(buffer.buffer_size))
-        flush_buffer(device, buffer) or_return
+        flush_buffer(ctx, buffer) or_return
 
         vk.UnmapMemory(device, buffer.memory)
 
@@ -61,13 +60,13 @@ allocate_buffer :: proc(device: vk.Device, buffer: Buffer, data: rawptr) -> vk.R
 }
 
 // Destroy a buffer.
-destroy_buffer :: proc(device: vk.Device, buffer: Buffer) {
+destroy_buffer :: proc(using ctx: ^Context, buffer: Buffer) {
         vk.DestroyBuffer(device, buffer.buffer, nil)
         vk.FreeMemory(device, buffer.memory, nil)
 }
 
 // Quick and dirty explicit flushing.
-flush_buffer :: proc(device: vk.Device, buffer: Buffer) -> vk.Result {
+flush_buffer :: proc(using ctx: ^Context, buffer: Buffer) -> vk.Result {
         mapped_memory_range: vk.MappedMemoryRange = {
                 sType = .MAPPED_MEMORY_RANGE,
                 memory = buffer.memory,

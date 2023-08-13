@@ -1,8 +1,6 @@
 package graphics
 
 import vk "vendor:vulkan"
-import "vendor:glfw"
-import "core:fmt"
 
 /**
 * The swapchain.odin file handles all data and functions necessary for managing the
@@ -52,9 +50,7 @@ swapchain_is_supported :: proc(device: vk.PhysicalDevice) -> (bool) {
 
 
 init_swapchain :: proc(using ctx: ^Context) -> vk.Result {
-        using ctx.swapchain
-
-        vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(gpu, surface, &support.capabilities) or_return
+        vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(gpu, surface, &swapchain.support.capabilities) or_return
 
         // Get the preferred format for the device.
         count: u32
@@ -74,34 +70,40 @@ init_swapchain :: proc(using ctx: ^Context) -> vk.Result {
         for candidate in formats {
                 #partial switch candidate.format {
                         case .R8G8B8A8_UNORM, .B8G8R8A8_UNORM, .A8B8G8R8_UNORM_PACK32:
-                                format = candidate
+                                swapchain.format = candidate
                                 break 
                         case:
                                 break
                 }
-                if format.format != .UNDEFINED do break
+                if swapchain.format.format != .UNDEFINED do break
         }
 
-        if format.format == .UNDEFINED do format = formats[0]
+        if swapchain.format.format == .UNDEFINED do swapchain.format = formats[0]
 
-        window_width, window_height := glfw.GetFramebufferSize(ctx.window)
-
-        caps := support.capabilities
+        caps := swapchain.support.capabilities
         if caps.currentExtent.width != max(u32) {
-                extent = caps.currentExtent
+                swapchain.extent = caps.currentExtent
         }
         else {
-                extent.width = clamp(extent.width, caps.minImageExtent.width, caps.maxImageExtent.width)
-                extent.height = clamp(extent.height, caps.minImageExtent.height, caps.maxImageExtent.height)
+                swapchain.extent.width = clamp(
+                        swapchain.extent.width,
+                        caps.minImageExtent.width,
+                        caps.maxImageExtent.width,
+                )
+                swapchain.extent.height = clamp(
+                        swapchain.extent.height,
+                        caps.minImageExtent.height,
+                        caps.maxImageExtent.height,
+                )
         }
 
         vk.GetPhysicalDeviceSurfacePresentModesKHR(gpu, surface, &count, nil) or_return
         present_modes := make([]vk.PresentModeKHR, count)
         defer delete(present_modes)
 
-        present_mode = .IMMEDIATE
+        swapchain.present_mode = .IMMEDIATE
         for mode in present_modes {
-                if mode == .MAILBOX do present_mode = mode
+                if mode == .MAILBOX do swapchain.present_mode = mode
         }
 
 
@@ -111,9 +113,9 @@ init_swapchain :: proc(using ctx: ^Context) -> vk.Result {
         // Simply sticking to this minimum means that we may sometimes have to wait on the driver to
         // complete internal operations before we can acquire another image to render to.
         // Therefore it is recommended to request at least one more image than the minimum.
-        preferred := support.capabilities.minImageCount + 1
-        image_count = preferred if support.capabilities.maxImageCount == 0 \
-                else min(preferred, support.capabilities.maxImageCount)
+        preferred := swapchain.support.capabilities.minImageCount + 1
+        swapchain.image_count = preferred if swapchain.support.capabilities.maxImageCount == 0 \
+                else min(preferred, swapchain.support.capabilities.maxImageCount)
 
         // Find the right queue families
         all_in_one_queue := queue_indices[.GRAPHICS] == queue_indices[.PRESENT]
@@ -123,40 +125,40 @@ init_swapchain :: proc(using ctx: ^Context) -> vk.Result {
         swapchain_create_info : vk.SwapchainCreateInfoKHR = {
                 sType = .SWAPCHAIN_CREATE_INFO_KHR,
                 surface = surface,
-                minImageCount = image_count,
-                imageFormat = format.format,
-                imageColorSpace = format.colorSpace,
-                imageExtent = extent,
+                minImageCount = swapchain.image_count,
+                imageFormat = swapchain.format.format,
+                imageColorSpace = swapchain.format.colorSpace,
+                imageExtent = swapchain.extent,
                 imageArrayLayers = 1,
                 imageUsage =  { .COLOR_ATTACHMENT },
                 imageSharingMode = .EXCLUSIVE if all_in_one_queue else .CONCURRENT,
                 queueFamilyIndexCount = 0 if all_in_one_queue else 2,
                 pQueueFamilyIndices = nil if all_in_one_queue else raw_data(queue_family_indices),
-                preTransform = support.capabilities.currentTransform,
+                preTransform = swapchain.support.capabilities.currentTransform,
                 compositeAlpha = { .OPAQUE },
-                presentMode = present_mode,
+                presentMode = swapchain.present_mode,
                 clipped = true,
                 oldSwapchain = old_swapchain.handle,
         }
 
-        vk.CreateSwapchainKHR(device, &swapchain_create_info, nil, &handle) or_return
+        vk.CreateSwapchainKHR(device, &swapchain_create_info, nil, &swapchain.handle) or_return
 
         if &old_swapchain.handle != nil {
                 /* TODO: Tear down old swapchain */
         }
 
-        vk.GetSwapchainImagesKHR(device, handle, &count, nil) or_return
-        images = make([]vk.Image, count)
-        vk.GetSwapchainImagesKHR(device, handle, &count, raw_data(images)) or_return
+        vk.GetSwapchainImagesKHR(device, swapchain.handle, &count, nil) or_return
+        swapchain.images = make([]vk.Image, count)
+        vk.GetSwapchainImagesKHR(device, swapchain.handle, &count, raw_data(swapchain.images)) or_return
 
-        image_views = make([]vk.ImageView, count)
+        swapchain.image_views = make([]vk.ImageView, count)
 
         for i in 0..<count {
                 image_view_create_info : vk.ImageViewCreateInfo = {
                         sType = .IMAGE_VIEW_CREATE_INFO,
-                        image = images[i],
+                        image = swapchain.images[i],
                         viewType = .D2,
-                        format = format.format,
+                        format = swapchain.format.format,
                         components = { r = .IDENTITY, g = .IDENTITY, b = .IDENTITY, a = .IDENTITY },
 
                         // A subresource range specifies which aspect of the image we desire to operate on.
@@ -169,7 +171,7 @@ init_swapchain :: proc(using ctx: ^Context) -> vk.Result {
                         },
                 }
 
-                vk.CreateImageView(device, &image_view_create_info, nil, &(image_views[i])) or_return
+                vk.CreateImageView(device, &image_view_create_info, nil, &(swapchain.image_views[i])) or_return
         }
 
         return .SUCCESS
@@ -189,24 +191,22 @@ cleanup_swapchain :: proc(using ctx: ^Context) {
 }
 
 init_swapchain_framebuffers :: proc(using ctx: ^Context) -> vk.Result {
-        using ctx.swapchain
+        swapchain.framebuffers = make([]vk.Framebuffer, len(swapchain.image_views)) 
 
-        framebuffers = make([]vk.Framebuffer, len(image_views)) 
-
-        for i in 0..<len(image_views) {
-                attachments: []vk.ImageView = { image_views[i] }
+        for i in 0..<len(swapchain.image_views) {
+                attachments: []vk.ImageView = { swapchain.image_views[i] }
 
                 framebuffer_create_info: vk.FramebufferCreateInfo = {
                         sType = .FRAMEBUFFER_CREATE_INFO,
                         renderPass = ctx.pipeline.render_pass,
                         attachmentCount = 1,
                         pAttachments = raw_data(attachments),
-                        width = extent.width,
-                        height = extent.height,
+                        width = swapchain.extent.width,
+                        height = swapchain.extent.height,
                         layers = 1,
                 }
 
-                vk.CreateFramebuffer(device, &framebuffer_create_info, nil, &framebuffers[i]) or_return
+                vk.CreateFramebuffer(device, &framebuffer_create_info, nil, &swapchain.framebuffers[i]) or_return
         }
 
         return .SUCCESS

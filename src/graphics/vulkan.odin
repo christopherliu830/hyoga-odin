@@ -1,13 +1,13 @@
 package graphics
 
 import "core:fmt"
+import "core:log"
 import "core:runtime"
-import "core:os"
-import "core:strings"
-import sa "core:container/small_array"
 
 import "vendor:glfw"
 import vk "vendor:vulkan"
+
+import "vma"
 
 WINDOW_HEIGHT :: 600
 WINDOW_WIDTH :: 800
@@ -18,22 +18,27 @@ Context :: struct
 {
 	debug_messenger: vk.DebugUtilsMessengerEXT,
 
+        // Nested structs
+	swapchain: Swapchain,
+	pipeline: Pipeline,
+	perframes: []Perframe,
+        upload_context: UploadContext,
+        allocator: vma.Allocator,
+
+        // Handles
 	instance: vk.Instance,
   	device:   vk.Device,
 	gpu: vk.PhysicalDevice,
-	swapchain: Swapchain,
-	pipeline: Pipeline,
-	queue_indices:   [QueueFamily]int,
-	queues:   [QueueFamily]vk.Queue,
 	surface:  vk.SurfaceKHR,
 	window:   glfw.WindowHandle,
+
+        // Buffers
 	vertex_buffer: Buffer,
 	index_buffer: Buffer,
-	
-	curr_frame: u32,
-	framebuffer_resized: bool,
 
-	perframes: []Perframe,
+        // Queues
+	queue_indices:   [QueueFamily]int,
+	queues:   [QueueFamily]vk.Queue,
 }
 
 Perframe :: struct {
@@ -52,6 +57,13 @@ QueueFamily :: enum
 	PRESENT,
 }
 
+UploadContext :: struct {
+        command_pool: vk.CommandPool,
+        command_buffer: vk.CommandBuffer,
+        fence: vk.Fence,
+}
+
+//region Interface
 
 update :: proc(using ctx: ^Context) -> bool {
         index: u32
@@ -71,6 +83,10 @@ update :: proc(using ctx: ^Context) -> bool {
 
         return result != .SUCCESS
 }
+
+//endregion Interface
+
+//region Rendering
 
 acquire_image :: proc(using ctx: ^Context, image: ^u32) -> vk.Result {
         signaled_semaphore := perframes[image^].image_available
@@ -189,7 +205,7 @@ present_image :: proc(using ctx: ^Context, index: u32) -> vk.Result {
 }
 
 resize :: proc(using ctx: ^Context) -> bool {
-        fmt.println("Resizing")
+        log.debugf("Resizing")
 
         if device == nil do return false
 
@@ -213,11 +229,17 @@ resize :: proc(using ctx: ^Context) -> bool {
         return true
 }
 
+//endregion Rendering
+
 //region Initialization functions 
 
 init :: proc() -> (ctx: Context) {
-        using ctx;
-        init_window(&ctx)
+        init_all(&ctx)
+        return
+}
+
+init_all :: proc(using ctx: ^Context) {
+        init_window(ctx)
 
         // Vulkan does not come loaded into Odin by default, 
         // so we need to begin by loading Vulkan's functions at runtime.
@@ -245,7 +267,7 @@ init :: proc() -> (ctx: Context) {
 
         // Create Instance
         result: vk.Result
-        result = init_vulkan_instance(&ctx, &debug_info)
+        result = init_vulkan_instance(ctx, &debug_info)
         error_check(result)
 
         // Load the rest of Vulkan's functions.
@@ -254,31 +276,35 @@ init :: proc() -> (ctx: Context) {
         result = vk.CreateDebugUtilsMessengerEXT(instance, &debug_info, nil, &debug_messenger)
         error_check(result)
 
-        result = init_physical_device_and_surface(&ctx)
+        result = init_physical_device_and_surface(ctx)
         error_check(result)
 
-        result = init_logical_device(&ctx)
+        result = init_logical_device(ctx)
         error_check(result)
 
-        result = init_swapchain(&ctx)
+        result = init_allocator(ctx)
         error_check(result)
 
-        result = init_perframes(&ctx)
+        result = init_swapchain(ctx)
         error_check(result)
 
-        result = create_render_pass(&ctx)
+        result = init_perframes(ctx)
         error_check(result)
 
-        result = create_pipeline(&ctx)
+        result = create_render_pass(ctx)
         error_check(result)
 
-        result = init_swapchain_framebuffers(&ctx)
+        result = create_pipeline(ctx)
         error_check(result)
 
-        vertex_buffer, result = init_vertex_buffer(device, gpu)
+        result = init_swapchain_framebuffers(ctx)
         error_check(result)
 
-        return ctx
+        result = init_upload_context(ctx)
+        error_check(result)
+
+        result = init_vertex_buffer(ctx)
+        error_check(result)
 }
 
 init_window :: proc(using ctx: ^Context) {
@@ -332,11 +358,11 @@ init_vulkan_instance :: proc(using ctx: ^Context, debug_create_info: ^vk.DebugUt
         // Enabled Layers
         layers := []cstring { "VK_LAYER_KHRONOS_validation" }
 
-        fmt.print("Enabled Extensions: ")
-        for extension in required_extensions do fmt.printf("%s ", extension); fmt.println()
+        log.info("Enabled Extensions: ")
+        for extension in required_extensions do log.infof("%s ", extension)
 
-        fmt.print("Enabled Layers: ")
-        for layer in layers do fmt.printf("%s ", layer); fmt.println()
+        log.info("Enabled Layers: ")
+        for layer in layers do log.infof("%s ", layer)
 
         instance_create_info: vk.InstanceCreateInfo = {
                 sType = vk.StructureType.INSTANCE_CREATE_INFO,
@@ -393,7 +419,7 @@ init_physical_device_and_surface :: proc(using ctx: ^Context) -> vk.Result {
                                 queue_indices[.GRAPHICS] = index
                         }
                 }
-                fmt.printf("Enabled GPU: %s\n", cstring(raw_data(&properties.deviceName)))
+                log.info("Enabled GPU: %s\n", cstring(raw_data(&properties.deviceName)))
                 gpu = physical_device
                 break
         }
@@ -467,7 +493,17 @@ init_logical_device :: proc(using ctx: ^Context) -> vk.Result {
 }
 
 init_allocator :: proc(using ctx: ^Context) -> vk.Result {
-        /* To be implemented */
+        vulkan_functions := vma.create_vulkan_functions()
+
+        create_info: vma.AllocatorCreateInfo = {
+                vulkanApiVersion = vk.API_VERSION_1_3,
+                physicalDevice = gpu,
+                device = device,
+                instance = instance,
+                pVulkanFunctions = &vulkan_functions,
+        }
+
+        vma.CreateAllocator(&create_info, &allocator) or_return
         return .SUCCESS
 }
 
@@ -507,13 +543,61 @@ init_perframes :: proc(using ctx: ^Context) -> vk.Result {
         return .SUCCESS
 }
 
+init_upload_context :: proc(using ctx: ^Context) -> 
+(result: vk.Result) {
+
+        command_pool_info : vk.CommandPoolCreateInfo = {
+                sType = .COMMAND_POOL_CREATE_INFO,
+                flags = { .TRANSIENT, .RESET_COMMAND_BUFFER },
+        }
+        
+        vk.CreateCommandPool(device, &command_pool_info, nil, &upload_context.command_pool) or_return
+
+        command_buffer_info : vk.CommandBufferAllocateInfo = {
+                sType = .COMMAND_BUFFER_ALLOCATE_INFO,
+                level = .PRIMARY,
+                commandPool = upload_context.command_pool,
+                commandBufferCount = 1,
+        }
+
+        vk.AllocateCommandBuffers(device, &command_buffer_info, &upload_context.command_buffer) or_return
+
+        fence_info : vk.FenceCreateInfo = { }
+        vk.CreateFence(device, &fence_info, nil, &upload_context.fence)
+
+        return .SUCCESS
+}
+
 // Temporary
-init_vertex_buffer :: proc(device: vk.Device, gpu: vk.PhysicalDevice) ->
-(buffer: Buffer, result: vk.Result) {
+init_vertex_buffer :: proc(using ctx: ^Context) -> vk.Result {
         v := VERTICES
-        buffer = create_buffer(device, gpu, size_of(Vertex), len(VERTICES)) or_return
-        allocate_buffer(device, buffer, &v)
-        return buffer, .SUCCESS
+        size : vk.DeviceSize = len(VERTICES) * size_of(Vertex)
+        staging_buffer := create_buffer(
+                ctx = ctx,
+                size = size,
+                usage = { .TRANSFER_SRC },
+                memory_flags = { .HOST_VISIBLE },
+        ) or_return
+        allocate_buffer(ctx, staging_buffer, &v)
+
+        defer destroy_buffer(ctx, staging_buffer)
+
+        vertex_buffer = create_buffer(
+                ctx = ctx,
+                size = size,
+                usage = { .VERTEX_BUFFER, .TRANSFER_DST },
+                memory_flags = { .DEVICE_LOCAL },
+        ) or_return
+
+        cmd := begin_upload(ctx) or_return
+
+        copy_region: vk.BufferCopy = { size = size }
+        vk.CmdCopyBuffer(cmd, staging_buffer.buffer, vertex_buffer.buffer, 1, &copy_region)
+
+        end_upload(ctx) or_return
+
+
+        return .SUCCESS
 }
 
 //endregion Initialization functions
@@ -523,8 +607,9 @@ init_vertex_buffer :: proc(device: vk.Device, gpu: vk.PhysicalDevice) ->
 cleanup :: proc(using ctx: ^Context) {
         vk.DeviceWaitIdle(device)
 
-        destroy_buffer(device, vertex_buffer)
+        destroy_buffer(ctx, vertex_buffer)
 
+        cleanup_upload_context(ctx)
         cleanup_perframes(ctx)
         cleanup_pipeline(ctx)
         cleanup_swapchain(ctx)
@@ -541,13 +626,49 @@ cleanup_perframes :: proc(using ctx: ^Context) {
         for perframe in perframes {
                 vk.DestroyCommandPool(device, perframe.command_pool, nil)
                 vk.DestroyFence(device, perframe.in_flight_fence, nil)
-                // Skip deleting the other semaphore since it's already deleted from the semaphore pool.
                 vk.DestroySemaphore(device, perframe.render_finished, nil)
         }
         delete(perframes)
 }
 
+cleanup_upload_context :: proc(using ctx: ^Context) {
+        vk.DestroyCommandPool(device, upload_context.command_pool, nil)
+        vk.DestroyFence(device, upload_context.fence, nil)
+}
+
 //endregion Cleanup functions
+
+//region Upload Context
+
+begin_upload :: proc(using ctx: ^Context) ->
+(cmd: vk.CommandBuffer, result: vk.Result) {
+        begin_info: vk.CommandBufferBeginInfo = {
+                sType = .COMMAND_BUFFER_BEGIN_INFO,
+                flags = { .ONE_TIME_SUBMIT },
+        }
+
+        vk.BeginCommandBuffer(upload_context.command_buffer, &begin_info) or_return
+        return upload_context.command_buffer, .SUCCESS
+}
+
+end_upload :: proc(using ctx: ^Context) -> vk.Result  {
+        cmd := upload_context.command_buffer
+
+        vk.EndCommandBuffer(cmd) or_return
+
+        submit_info : vk.SubmitInfo = {
+                sType = .SUBMIT_INFO,
+                commandBufferCount = 1,
+                pCommandBuffers = &cmd,
+        }
+
+        vk.QueueSubmit(queues[.GRAPHICS], 1, &submit_info, upload_context.fence) or_return
+        vk.WaitForFences(device, 1, &upload_context.fence, true, max(u64)) or_return
+        vk.ResetFences(device, 1, &upload_context.fence) or_return
+
+        return .SUCCESS
+}
+//endregion Upload Context
 
 //region Debug
 
@@ -591,7 +712,7 @@ pUserData: rawptr) -> b32 {
 
 error_check :: proc(result: vk.Result) {
         if (result != .SUCCESS) {
-                fmt.panicf("VULKAN: %s\n", result)
+                log.error("VULKAN: %s\n", result)
         }
 }
 

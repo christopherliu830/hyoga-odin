@@ -184,9 +184,8 @@ create_pipeline :: proc(using ctx: ^Context) -> vk.Result {
 }
 
 cleanup_pipeline :: proc(using ctx: ^Context) {
-        using pipeline
-        vk.DestroyPipelineLayout(device, layout, nil)
-        vk.DestroyRenderPass(device, render_pass, nil)
+        vk.DestroyPipelineLayout(device, pipeline.layout, nil)
+        vk.DestroyRenderPass(device, pipeline.render_pass, nil)
 }
 
 create_render_pass :: proc(using ctx: ^Context) -> vk.Result {

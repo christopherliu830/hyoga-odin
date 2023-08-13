@@ -2,13 +2,41 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "Build Odin",
+            "label": "Build Odin (DEBUG)",
+            "type": "shell",
+            "command": "make debug",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        },
+        {
+            "label": "Build Odin (RELEASE)",
             "type": "shell",
             "command": "make all",
             "group": {
                 "kind": "build",
                 "isDefault": true
             }
-        }
+        },
+        {
+            "label": "Rebuild Shaders",
+            "type": "shell",
+            "command": "make shaders",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        },
+        {
+            "label": "Rebuild VMA",
+            "type": "shell",
+            "command": "make vma",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        },
+
     ]
 }
