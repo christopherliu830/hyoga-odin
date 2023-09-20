@@ -16,7 +16,7 @@ Pipeline :: struct
 	layout: vk.PipelineLayout,
 }
 
-create_pipeline :: proc(using ctx: ^Context) -> vk.Result {
+create_pipeline :: proc(using ctx: ^RenderContext) -> vk.Result {
 
         pipeline_layout: vk.PipelineLayout
 
@@ -26,9 +26,9 @@ create_pipeline :: proc(using ctx: ^Context) -> vk.Result {
 
         vk.CreatePipelineLayout(device, &layout_info, nil, &pipeline_layout)
 
-        fragment_module := load_shader_module(ctx, "shaders/shader.frag.spv")
+        fragment_module := load_shader_module(ctx, "assets/shaders/shader.frag.spv")
         defer vk.DestroyShaderModule(device, fragment_module, nil)
-        vertex_module := load_shader_module(ctx, "shaders/shader.vert.spv")
+        vertex_module := load_shader_module(ctx, "assets/shaders/shader.vert.spv")
         defer vk.DestroyShaderModule(device, vertex_module, nil)
 
         shader_stages : []vk.PipelineShaderStageCreateInfo = {
@@ -183,12 +183,12 @@ create_pipeline :: proc(using ctx: ^Context) -> vk.Result {
         return .SUCCESS
 }
 
-cleanup_pipeline :: proc(using ctx: ^Context) {
+cleanup_pipeline :: proc(using ctx: ^RenderContext) {
         vk.DestroyPipelineLayout(device, pipeline.layout, nil)
         vk.DestroyRenderPass(device, pipeline.render_pass, nil)
 }
 
-create_render_pass :: proc(using ctx: ^Context) -> vk.Result {
+create_render_pass :: proc(using ctx: ^RenderContext) -> vk.Result {
         color_attachment: vk.AttachmentDescription = {
                 format = swapchain.format.format,
                 samples = { ._1 },
@@ -235,7 +235,7 @@ create_render_pass :: proc(using ctx: ^Context) -> vk.Result {
         return .SUCCESS
 }
 
-load_shader_module :: proc(using ctx: ^Context, name: string) -> (shader_module: vk.ShaderModule) {
+load_shader_module :: proc(using ctx: ^RenderContext, name: string) -> (shader_module: vk.ShaderModule) {
         data, ok := os.read_entire_file(name)
         if (!ok) {
                 // Could not read file

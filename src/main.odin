@@ -1,16 +1,18 @@
 package main
 
-import "graphics"
+import "core:log"
 import "vendor:glfw"
 
-DEBUG :: true
+import "graphics"
 
 main :: proc () {
-        using ctx := graphics.init()
-        defer graphics.cleanup(&ctx)
+    context.logger = log.create_console_logger();
 
-        for !glfw.WindowShouldClose(ctx.window) {
-                glfw.PollEvents()
-                graphics.update(&ctx)
-        }
+    using ctx := graphics.init()
+    defer graphics.cleanup(&ctx)
+
+    for !glfw.WindowShouldClose(ctx.window) {
+        glfw.PollEvents()
+        graphics.update(&ctx)
+    }
 }

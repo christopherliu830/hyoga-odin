@@ -14,7 +14,7 @@ WINDOW_WIDTH :: 800
 WINDOW_TITLE :: "Hyoga"
 MAX_FRAMES_IN_FLIGHT :: 2
 
-Context :: struct {
+RenderContext :: struct {
 	debug_messenger: vk.DebugUtilsMessengerEXT,
 
 	// Nested structs
@@ -61,9 +61,7 @@ UploadContext :: struct {
 	fence:          vk.Fence,
 }
 
-//region Interface
-
-update :: proc(using ctx: ^Context) -> bool {
+update :: proc(using ctx: ^RenderContext) -> bool {
 	index: u32
 	result: vk.Result
 
@@ -82,11 +80,7 @@ update :: proc(using ctx: ^Context) -> bool {
 	return result != .SUCCESS
 }
 
-//endregion Interface
-
-//region Rendering
-
-acquire_image :: proc(using ctx: ^Context, image: ^u32) -> vk.Result {
+acquire_image :: proc(using ctx: ^RenderContext, image: ^u32) -> vk.Result {
 	signaled_semaphore := perframes[image^].image_available
 
 	result := vk.AcquireNextImageKHR(
@@ -125,7 +119,7 @@ acquire_image :: proc(using ctx: ^Context, image: ^u32) -> vk.Result {
 	return .SUCCESS
 }
 
-draw :: proc(using ctx: ^Context, index: u32) -> vk.Result {
+draw :: proc(using ctx: ^RenderContext, index: u32) -> vk.Result {
 
 	cmd := perframes[index].command_buffer
 
@@ -196,7 +190,7 @@ draw :: proc(using ctx: ^Context, index: u32) -> vk.Result {
 	return .SUCCESS
 }
 
-present_image :: proc(using ctx: ^Context, index: u32) -> vk.Result {
+present_image :: proc(using ctx: ^RenderContext, index: u32) -> vk.Result {
 	i := index
 
 	present_info: vk.PresentInfoKHR = {
@@ -211,42 +205,37 @@ present_image :: proc(using ctx: ^Context, index: u32) -> vk.Result {
 	return vk.QueuePresentKHR(queues[.PRESENT], &present_info)
 }
 
-resize :: proc(using ctx: ^Context) -> bool {
-	log.debugf("Resizing")
-
-	if device == nil do return false
+resize :: proc(this: ^RenderContext, w: i32 = 0, h: i32 = 0) -> bool {
+	if this.device == nil do return false
 
 	surface_properties: vk.SurfaceCapabilitiesKHR
-	vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(gpu, surface, &surface_properties)
+	vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(this.gpu, this.surface, &surface_properties)
+	if surface_properties.currentExtent == this.swapchain.extent do return false
 
-	if surface_properties.currentExtent == swapchain.extent do return false
-
-	for x, y := glfw.GetFramebufferSize(ctx.window); x == 0 && y == 0; {
-		x, y = glfw.GetFramebufferSize(ctx.window)
+	for x, y := w, h; x == 0 && y == 0; {
+		x, y = glfw.GetFramebufferSize(this.window)
 		glfw.WaitEvents()
 	}
 
-	vk.DeviceWaitIdle(device)
+	cleanup_swapchain_framebuffers(this)
 
-	cleanup_swapchain_framebuffers(ctx)
-
-	init_swapchain(ctx)
-	init_swapchain_framebuffers(ctx)
+	init_swapchain(this)
+	init_swapchain_framebuffers(this)
 
 	return true
 }
 
-//endregion Rendering
 
-//region Initialization functions 
 
-init :: proc() -> (ctx: Context) {
-	init_all(&ctx)
+init :: proc() -> (ctx: RenderContext) {
+    log.debug("init");
+    result: vk.Result = init_all(&ctx)
+    if result != .SUCCESS do fmt.panicf("Error in initialization: %s\n", result)
 	return
 }
 
-init_all :: proc(using ctx: ^Context) {
-	init_window(ctx)
+init_all :: proc(this: ^RenderContext) -> vk.Result {
+	this.window = init_window(this)
 
 	// Vulkan does not come loaded into Odin by default, 
 	// so we need to begin by loading Vulkan's functions at runtime.
@@ -265,69 +254,55 @@ init_all :: proc(using ctx: ^Context) {
 		pfnUserCallback = debug_messenger_callback,
 	}
 
-	// Create Instance
-	result: vk.Result
-	result = init_vulkan_instance(ctx, &debug_info)
-	error_check(result)
+	this.instance = init_vulkan_instance(&debug_info) or_return
 
 	// Load the rest of Vulkan's functions.
-	vk.load_proc_addresses(instance)
+	vk.load_proc_addresses(this.instance)
 
-	result = vk.CreateDebugUtilsMessengerEXT(instance, &debug_info, nil, &debug_messenger)
-	error_check(result)
+	vk.CreateDebugUtilsMessengerEXT(this.instance, &debug_info, nil, &this.debug_messenger) or_return
 
-	result = init_physical_device_and_surface(ctx)
-	error_check(result)
+	init_physical_device_and_surface(this) or_return
+	init_logical_device(this) or_return
+	init_allocator(this) or_return
+	init_swapchain(this) or_return
+	init_perframes(this) or_return
+	create_render_pass(this) or_return
+	create_pipeline(this) or_return
+	init_swapchain_framebuffers(this) or_return
+	init_upload_context(this) or_return
+	init_vertex_buffer(this) or_return
 
-	result = init_logical_device(ctx)
-	error_check(result)
-
-	result = init_allocator(ctx)
-	error_check(result)
-
-	result = init_swapchain(ctx)
-	error_check(result)
-
-	result = init_perframes(ctx)
-	error_check(result)
-
-	result = create_render_pass(ctx)
-	error_check(result)
-
-	result = create_pipeline(ctx)
-	error_check(result)
-
-	result = init_swapchain_framebuffers(ctx)
-	error_check(result)
-
-	result = init_upload_context(ctx)
-	error_check(result)
-
-	result = init_vertex_buffer(ctx)
-	error_check(result)
+    return .SUCCESS
 }
 
-init_window :: proc(using ctx: ^Context) {
+init_window :: proc(this: ^RenderContext) -> glfw.WindowHandle {
 	glfw.SetErrorCallback(error_callback)
 	glfw.Init()
 
 	glfw.WindowHint(glfw.CLIENT_API, glfw.NO_API)
 
-	window = glfw.CreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE, nil, nil)
+	window := glfw.CreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE, nil, nil)
+    glfw.SetWindowUserPointer(window, this);
+    glfw.SetWindowSizeCallback(window, proc "c" (win: glfw.WindowHandle, w, h: i32) {
+        context = runtime.default_context()
+        log.debug("Resizing callback");
+        ctx := glfw.GetWindowUserPointer(win)
+        resize(cast(^RenderContext)ctx)
+    })
 
 	if (!glfw.VulkanSupported()) {
 		panic("Vulkan not supported!")
 	}
+
+    return window;
 }
 
-init_vulkan_instance :: proc(
-	using ctx: ^Context,
-	debug_create_info: ^vk.DebugUtilsMessengerCreateInfoEXT,
-) -> vk.Result {
+init_vulkan_instance :: proc(debug_create_info: ^vk.DebugUtilsMessengerCreateInfoEXT) ->
+(instance: vk.Instance, result: vk.Result) {
 	application_info: vk.ApplicationInfo = {
 		sType            = vk.StructureType.APPLICATION_INFO,
 		pApplicationName = "Untitled",
-		pEngineName      = "Odinpi",
+		pEngineName      = "Hyoga",
 		apiVersion       = vk.API_VERSION_1_3,
 	}
 
@@ -380,10 +355,10 @@ init_vulkan_instance :: proc(
 
 	vk.CreateInstance(&instance_create_info, nil, &instance) or_return
 
-	return .SUCCESS
+	return instance, .SUCCESS
 }
 
-init_physical_device_and_surface :: proc(using ctx: ^Context) -> vk.Result {
+init_physical_device_and_surface :: proc(using ctx: ^RenderContext) -> vk.Result {
 	count: u32
 	vk.EnumeratePhysicalDevices(instance, &count, nil) or_return
 	devices := make([]vk.PhysicalDevice, count)
@@ -438,7 +413,7 @@ init_physical_device_and_surface :: proc(using ctx: ^Context) -> vk.Result {
 	return .SUCCESS
 }
 
-init_logical_device :: proc(using ctx: ^Context) -> vk.Result {
+init_logical_device :: proc(using ctx: ^RenderContext) -> vk.Result {
 	count: u32
 	vk.EnumerateDeviceExtensionProperties(gpu, nil, &count, nil) or_return
 	extensions := make([]vk.ExtensionProperties, count)
@@ -504,7 +479,7 @@ init_logical_device :: proc(using ctx: ^Context) -> vk.Result {
 	return .SUCCESS
 }
 
-init_allocator :: proc(using ctx: ^Context) -> vk.Result {
+init_allocator :: proc(using ctx: ^RenderContext) -> vk.Result {
 	vulkan_functions := vma.create_vulkan_functions()
 
 	create_info: vma.AllocatorCreateInfo = {
@@ -519,7 +494,7 @@ init_allocator :: proc(using ctx: ^Context) -> vk.Result {
 	return .SUCCESS
 }
 
-init_perframes :: proc(using ctx: ^Context) -> vk.Result {
+init_perframes :: proc(using ctx: ^RenderContext) -> vk.Result {
 	perframes = make([]Perframe, len(ctx.swapchain.images))
 
 	for _, i in perframes {
@@ -557,7 +532,7 @@ init_perframes :: proc(using ctx: ^Context) -> vk.Result {
 	return .SUCCESS
 }
 
-init_upload_context :: proc(using ctx: ^Context) -> (result: vk.Result) {
+init_upload_context :: proc(using ctx: ^RenderContext) -> (result: vk.Result) {
 
 	command_pool_info: vk.CommandPoolCreateInfo = {
 		sType = .COMMAND_POOL_CREATE_INFO,
@@ -586,7 +561,7 @@ init_upload_context :: proc(using ctx: ^Context) -> (result: vk.Result) {
 }
 
 // Temporary
-init_vertex_buffer :: proc(using ctx: ^Context) -> vk.Result {
+init_vertex_buffer :: proc(using ctx: ^RenderContext) -> vk.Result {
 	v := VERTICES
 	size: vk.DeviceSize = len(VERTICES) * size_of(Vertex)
 	staging_buffer := create_buffer(
@@ -622,11 +597,9 @@ init_vertex_buffer :: proc(using ctx: ^Context) -> vk.Result {
 	return .SUCCESS
 }
 
-//endregion Initialization functions
 
-//region Cleanup functions
 
-cleanup :: proc(using ctx: ^Context) {
+cleanup :: proc(using ctx: ^RenderContext) {
 	vk.DeviceWaitIdle(device)
 
 	destroy_buffer(ctx, vertex_buffer)
@@ -644,7 +617,7 @@ cleanup :: proc(using ctx: ^Context) {
 	glfw.Terminate()
 }
 
-cleanup_perframes :: proc(using ctx: ^Context) {
+cleanup_perframes :: proc(using ctx: ^RenderContext) {
 	for perframe in perframes {
 		vk.DestroyCommandPool(device, perframe.command_pool, nil)
 		vk.DestroyFence(device, perframe.in_flight_fence, nil)
@@ -653,16 +626,14 @@ cleanup_perframes :: proc(using ctx: ^Context) {
 	delete(perframes)
 }
 
-cleanup_upload_context :: proc(using ctx: ^Context) {
+cleanup_upload_context :: proc(using ctx: ^RenderContext) {
 	vk.DestroyCommandPool(device, upload_context.command_pool, nil)
 	vk.DestroyFence(device, upload_context.fence, nil)
 }
 
-//endregion Cleanup functions
 
-//region Upload Context
 
-begin_upload :: proc(using ctx: ^Context) -> (cmd: vk.CommandBuffer, result: vk.Result) {
+begin_upload :: proc(using ctx: ^RenderContext) -> (cmd: vk.CommandBuffer, result: vk.Result) {
 	begin_info: vk.CommandBufferBeginInfo = {
 		sType = .COMMAND_BUFFER_BEGIN_INFO,
 		flags = {.ONE_TIME_SUBMIT},
@@ -672,7 +643,7 @@ begin_upload :: proc(using ctx: ^Context) -> (cmd: vk.CommandBuffer, result: vk.
 	return upload_context.command_buffer, .SUCCESS
 }
 
-end_upload :: proc(using ctx: ^Context) -> vk.Result {
+end_upload :: proc(using ctx: ^RenderContext) -> vk.Result {
 	cmd := upload_context.command_buffer
 
 	vk.EndCommandBuffer(cmd) or_return
@@ -692,9 +663,6 @@ end_upload :: proc(using ctx: ^Context) -> vk.Result {
 	return .SUCCESS
 }
 
-//endregion Upload Context
-
-//region Debug
 
 debug_messenger_callback :: proc "system" (
 	messageSeverity: vk.DebugUtilsMessageSeverityFlagsEXT,
@@ -751,4 +719,3 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 		glfw.SetWindowShouldClose(window, glfw.TRUE)
 	}
 }
-//endregion Debug

@@ -14,7 +14,7 @@ Buffer :: struct {
 }
 
 create_buffer :: proc(
-using ctx: ^Context,
+using ctx: ^RenderContext,
 size: vk.DeviceSize,
 item_count: u32,
 usage: vk.BufferUsageFlags,
@@ -51,7 +51,7 @@ memory_flags: vk.MemoryPropertyFlags = {},
 }
 
 // Map CPU memory into buffer.
-allocate_buffer :: proc(using ctx: ^Context, buffer: Buffer, data: rawptr) -> vk.Result {
+allocate_buffer :: proc(using ctx: ^RenderContext, buffer: Buffer, data: rawptr) -> vk.Result {
         mapped_ptr : rawptr
 
         vma.MapMemory(allocator, buffer.allocation, &mapped_ptr)
@@ -65,6 +65,6 @@ allocate_buffer :: proc(using ctx: ^Context, buffer: Buffer, data: rawptr) -> vk
 }
 
 // Destroy a buffer.
-destroy_buffer :: proc(using ctx: ^Context, buffer: Buffer) {
+destroy_buffer :: proc(using ctx: ^RenderContext, buffer: Buffer) {
         vma.DestroyBuffer(allocator, buffer.buffer, buffer.allocation)
 }
