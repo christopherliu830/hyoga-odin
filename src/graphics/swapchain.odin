@@ -1,7 +1,5 @@
 package graphics
 
-import "core:log"
-
 import vk "vendor:vulkan"
 
 /**
@@ -125,7 +123,6 @@ init_swapchain :: proc(using ctx: ^RenderContext) -> vk.Result {
     queue_family_indices := []u32{ u32(queue_indices[.GRAPHICS]), u32(queue_indices[.PRESENT]) }
 
     old_swapchain := swapchain
-    log.debug(swapchain.format.format, swapchain)
     swapchain_create_info : vk.SwapchainCreateInfoKHR = {
         sType = .SWAPCHAIN_CREATE_INFO_KHR,
         surface = surface,
@@ -202,7 +199,7 @@ init_swapchain_framebuffers :: proc(using ctx: ^RenderContext) -> vk.Result {
 
             framebuffer_create_info: vk.FramebufferCreateInfo = {
                     sType = .FRAMEBUFFER_CREATE_INFO,
-                    renderPass = ctx.pipeline.render_pass,
+                    renderPass = render_data.render_pass,
                     attachmentCount = 1,
                     pAttachments = raw_data(attachments),
                     width = swapchain.extent.width,
@@ -217,12 +214,12 @@ init_swapchain_framebuffers :: proc(using ctx: ^RenderContext) -> vk.Result {
 }
 
 cleanup_swapchain_framebuffers :: proc(this: ^RenderContext) {
-    // vk.QueueWaitIdle(this.queues[.GRAPHICS])
-    //
-    // for framebuffer in this.swapchain.framebuffers {
-    //         vk.DestroyFramebuffer(this.device, framebuffer, nil)
-    // }
+    vk.QueueWaitIdle(this.queues[.GRAPHICS])
 
-    // delete(this.swapchain.framebuffers)
+    for framebuffer in this.swapchain.framebuffers {
+            vk.DestroyFramebuffer(this.device, framebuffer, nil)
+    }
+
+    delete(this.swapchain.framebuffers)
 }
 
