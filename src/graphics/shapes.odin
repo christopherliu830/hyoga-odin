@@ -7,21 +7,6 @@ import vk "vendor:vulkan"
 
 import "common"
 
-ShapeType :: enum {
-    CUBE,
-    TETRAHEDRON,
-}
-
-Cube :: struct {
-    vertices:  [24]common.Vertex,
-    indices:   [36]u16,
-}
-
-Tetrahedron :: struct {
-    vertices:  [12]common.Vertex,
-    indices:   [12]u16,
-}
-
 create_tetrahedron :: proc() -> Tetrahedron {
 	v := [?]la.Vector3f32 {
 		{ 1,  1,  1},
