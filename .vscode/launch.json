@@ -1,0 +1,16 @@
+{
+    "configurations": [
+        {
+            "name": "Launch Debug",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/hyogad.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/build",
+            "preLaunchTask": "${defaultBuildTask}",
+            "environment": [],
+        },
+    ],
+    "version": "2.0.0"
+}

@@ -23,7 +23,7 @@ DESCRIPTOR_POOL_SIZES :: [?]UnscaledPoolSize {
     { .INPUT_ATTACHMENT, 0.5 },
 }
 
-create_descriptor_pool :: proc (device: vk.Device, num_sets: int) -> vk.DescriptorPool {
+descriptors_create_pool :: proc (device: vk.Device, num_sets: int) -> vk.DescriptorPool {
     pool_sizes : [len(DESCRIPTOR_POOL_SIZES)]vk.DescriptorPoolSize
 
     for unscaled_size, i in DESCRIPTOR_POOL_SIZES {

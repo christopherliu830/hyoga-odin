@@ -1,0 +1,14 @@
+[
+    {
+        "command": "vscode-neovim.send",
+        "key": "Ctrl+Alt+=",
+        "when": "editorTextFocus",
+        "args": "<leader>a="
+    },
+    {
+        "command": "vscode-neovim.send",
+        "key": "Ctrl+q",
+        "when": "editorTextFocus",
+        "args": "<C-q>"
+    }
+]

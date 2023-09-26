@@ -12,12 +12,12 @@ import vk "vendor:vulkan"
 * refresh rate.
 */
 
-create_swapchain :: proc(device:         vk.Device,
+swapchain_create :: proc(device:         vk.Device,
                          gpu:            vk.PhysicalDevice,
                          surface:        vk.SurfaceKHR,
                          queue_indices:  [QueueFamily]int,
                          old_swapchain:  vk.SwapchainKHR = 0) ->
- (swapchain: Swapchain) {
+(swapchain: Swapchain) {
     vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(gpu, surface, &swapchain.support.capabilities)
 
     count: u32
@@ -108,7 +108,7 @@ create_swapchain :: proc(device:         vk.Device,
 
     vk_assert(vk.CreateSwapchainKHR(device, &swapchain_create_info, nil, &swapchain.handle))
 
-    if &old_swapchain.handle != nil do destroy_swapchain(device, old_swapchain)
+    if &old_swapchain.handle != nil do  swapchain_destroy(device, old_swapchain)
 
     vk_assert(vk.GetSwapchainImagesKHR(device, swapchain.handle, &count, nil))
     swapchain.images = make([]vk.Image, count)
@@ -138,7 +138,7 @@ create_swapchain :: proc(device:         vk.Device,
     return swapchain
 }
 
-destroy_swapchain :: proc(device: vk.Device, swapchain: Swapchain) {
+swapchain_destroy :: proc(device: vk.Device, swapchain: Swapchain) {
 
     for image_view in swapchain.image_views {
         vk.DestroyImageView(device, image_view, nil)
@@ -152,17 +152,20 @@ destroy_swapchain :: proc(device: vk.Device, swapchain: Swapchain) {
     delete(swapchain.images)
 }
 
-create_swapchain_framebuffers :: proc(device: vk.Device, render_pass: vk.RenderPass, swapchain: Swapchain) ->
+swapchain_create_framebuffers :: proc(device: vk.Device,
+                                      render_pass: vk.RenderPass,
+                                      swapchain: Swapchain,
+                                      depth_image: Image) ->
 (framebuffers: []vk.Framebuffer) {
     framebuffers = make([]vk.Framebuffer, len(swapchain.image_views)) 
 
     for i in 0..<len(swapchain.image_views) {
-        attachments: []vk.ImageView = { swapchain.image_views[i] }
+        attachments: []vk.ImageView = { swapchain.image_views[i], depth_image.view }
 
         framebuffer_create_info: vk.FramebufferCreateInfo = {
             sType           = .FRAMEBUFFER_CREATE_INFO,
             renderPass      = render_pass,
-            attachmentCount = 1,
+            attachmentCount = u32(len(attachments)),
             pAttachments    = raw_data(attachments),
             width           = swapchain.extent.width,
             height          = swapchain.extent.height,
@@ -175,10 +178,14 @@ create_swapchain_framebuffers :: proc(device: vk.Device, render_pass: vk.RenderP
     return framebuffers
 }
 
-destroy_swapchain_framebuffers :: proc(device: vk.Device, framebuffers: []vk.Framebuffer) {
+swapchain_destroy_framebuffers :: proc(device: vk.Device, framebuffers: []vk.Framebuffer) {
     for framebuffer in framebuffers {
         vk.DestroyFramebuffer(device, framebuffer, nil)
     }
     delete(framebuffers)
+}
+
+swapchain_create_depth_image :: proc(extent: vk.Extent3D) {
+    
 }
 

@@ -14,11 +14,11 @@ SHADER_FLAGS = -c
 
 ODIN_COMPILER = odin
 ODIN_FLAGS = -collection:externals=externals            \
-						 -collection:memory=src/memory              \
-						 -collection:graphics=src/graphics          \
-						 -collection:pkgs=pkgs
+			 -collection:memory=src/memory              \
+			 -collection:graphics=src/graphics          \
+			 -collection:pkgs=pkgs
 
-RELODIN_FLAGS = -out=${RELEXE} {ODIN_FLAGS}
+RELODIN_FLAGS = -out=${RELEXE} ${ODIN_FLAGS}
 DBGODIN_FLAGS = -debug -out=${DBGEXE} ${ODIN_FLAGS}
 ODIN_SOURCES = $(wildcard ${ODIN_SOURCE_DIR}/*.odin) $(wildcard **/*.odin)
 
@@ -38,30 +38,7 @@ $(RELEXE): FORCE
 	$(ODIN_COMPILER) build $(ODIN_SOURCE_DIR) $(RELODIN_FLAGS) 
 
 # Prep
-install: vma shaders
-
-# VMA ----------------------------------------------------------------
-
-VMA_SOURCE_DIR = pkgs/VulkanMemoryAllocator
-VMA_BUILD_DIR = externals/vma
-
-vma: $(VMA_BUILD_DIR)
-
-$(VMA_BUILD_DIR): $(VMA_SOURCE_DIR)
-ifeq (${OS}, Windows_NT)
-	cmake -S $(VMA_SOURCE_DIR) -B $(VMA_SOURCE_DIR)/build -DVMA_STATIC_VULKAN_FUNCTIONS=OFF
-	msbuild.exe $(VMA_SOURCE_DIR)/build/VulkanMemoryAllocator.sln -p:Configuration=Release
-	msbuild.exe $(VMA_SOURCE_DIR)/build/VulkanMemoryAllocator.sln
-	cmake --install $(VMA_SOURCE_DIR)/build --prefix $(VMA_SOURCE_DIR)/build/install
-	mkdir -p $(VMA_BUILD_DIR)
-	mv $(VMA_SOURCE_DIR)/build/src/Release/* $(VMA_BUILD_DIR)
-	mv $(VMA_SOURCE_DIR)/build/src/Debug/* $(VMA_BUILD_DIR)
-else
-	cmake -S $(VMA_SOURCE_DIR) -B $(VMA_SOURCE_DIR)/build -DVMA_STATIC_VULKAN_FUNCTIONS=OFF
-	cmake --build $(VMA_SOURCE_DIR)/build
-	cmake --install $(VMA_SOURCE_DIR)/build --prefix $(VMA_SOURCE_DIR)/build/install
-	mv $(VMA_SOURCE_DIR)/build/install/lib/* $(VMA_BUILD_DIR)
-endif
+install: shaders
 
 # SHADERS -----------------------------------------------------------
 SHADER_SOURCE_DIR = assets/shaders

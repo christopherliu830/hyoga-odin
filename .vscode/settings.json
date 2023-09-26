@@ -1,0 +1,22 @@
+{
+    "[odin]": {
+        "editor.tabSize": 4
+    },
+    "terminal.integrated.env.windows": {
+        "MSYSTEM": "UCRT64",
+        "MSYS2_PATH_TYPE": "inherit",
+        "CHERE_INVOKING": "1"
+    },
+    "terminal.integrated.profiles.windows": {
+        "ucrt64": {
+            "path": "C:\\msys64\\usr\\bin\\bash.exe",
+            "args": ["--login", "-i"],
+            "icon": "terminal-bash"
+        },
+    },
+    "terminal.integrated.defaultProfile.windows": "ucrt64",
+    "editor.fontSize": 16,
+    "extensions.experimental.affinity": {
+        "asvetliakov.vscode-neovim": 1
+    }
+}

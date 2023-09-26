@@ -6,8 +6,8 @@ import "core:fmt"
 
 import vk "vendor:vulkan"
 import bt "pkgs:obacktracing"
+import "pkgs:vma"
 
-import "vma"
 import "builders"
 import "common"
 
@@ -98,6 +98,53 @@ buffers_create :: proc(size:   int,
     return buffer
 }
 
+buffers_create_image :: proc(device: vk.Device, extent: vk.Extent3D) ->
+(image: Image) {
+    image_info := vk.ImageCreateInfo {
+        sType       = .IMAGE_CREATE_INFO,
+        imageType   = .D2,
+        format      = .D32_SFLOAT,
+        extent      = extent,
+        mipLevels   = 1,
+        arrayLayers = 1,
+        samples     = { ._1 },
+        tiling      = .OPTIMAL,
+        usage       = { .DEPTH_STENCIL_ATTACHMENT },
+    }
+    
+    alloc_info := vma.AllocationCreateInfo {
+        usage = .AUTO,
+        requiredFlags = { .DEVICE_LOCAL },
+    }
+    
+    allocation_info: vma.AllocationInfo
+
+    vk_assert(vma.CreateImage(vma_allocator,
+                    &image_info, 
+                    &alloc_info, 
+                    &image.handle, &image.allocation,
+                    &allocation_info))
+
+    image.size = int(allocation_info.size)
+    
+    image_view_info := vk.ImageViewCreateInfo {
+        sType = .IMAGE_VIEW_CREATE_INFO,
+        viewType = .D2,
+        image = image.handle,
+        format = .D32_SFLOAT,
+        subresourceRange = {
+            aspectMask = { .DEPTH },
+            baseMipLevel = 0, 
+            levelCount = 1,
+            baseArrayLayer =  0,
+            layerCount = 1,
+        },
+    }
+    
+    vk_assert(vk.CreateImageView(device, &image_view_info, nil, &image.view))
+    return image
+}
+
 buffers_destroy :: proc(buffer: Buffer) {
     vma.DestroyBuffer(vma_allocator, buffer.handle, buffer.allocation)
 }
@@ -132,7 +179,7 @@ buffers_init_staging :: proc(device: vk.Device, queue: vk.Queue) {
     staging.queue = queue
     staging.submission_in_flight = false
     staging.fence = builders.create_fence(device)
-    staging.command_pool = builders.create_command_pool(device)
+    staging.command_pool = builders.create_command_pool(device, { .TRANSIENT })
     staging.command_buffer = builders.create_command_buffer(device, staging.command_pool)
     staging.buffer = buffers_create(STAGING_BUFFER_SIZE, buffers_default_flags(.STAGING))
 
@@ -245,4 +292,10 @@ buffers_wait_stage_submission :: proc() -> vk.Result {
     return .SUCCESS
 }
 
+buffers_to_mtptr :: proc(buffer: Buffer, $T: typeid) -> []T {
+    assert(buffer.mapped_ptr != nil)
+
+    mtp := transmute([^]T)buffer.mapped_ptr
+    return mtp[0:buffer.size/size_of(T)]
+}
 

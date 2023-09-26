@@ -8,11 +8,42 @@ import la "core:math/linalg"
 
 import "vendor:glfw"
 import vk "vendor:vulkan"
+import "pkgs:vma"
 
-import "vma"
 import "materials"
 import "builders"
 import "common"
+
+RenderContext :: struct {
+    window:              glfw.WindowHandle,
+    instance:            vk.Instance,
+    device:              vk.Device,
+    gpu:                 vk.PhysicalDevice,
+    surface:             vk.SurfaceKHR,
+
+    // Queues
+    queues:              [QueueFamily]vk.Queue,
+    queue_indices:       [QueueFamily]int,
+
+    // Nested structs    
+    perframes:           []Perframe,
+    swapchain:           Swapchain,
+    depth_image:         Image,
+    render_pass:         vk.RenderPass,
+    framebuffers:        []vk.Framebuffer,
+
+    // Handles
+    descriptor_pool:     vk.DescriptorPool,
+
+    render_data:         RenderData,
+    camera_data:         CameraData,
+    unlit_effect:        materials.ShaderEffect,
+    unlit_pass:          materials.ShaderPass,
+    unlit_mat:           materials.Material,
+
+    debug_messenger:     vk.DebugUtilsMessengerEXT,
+    window_needs_resize: bool,
+}
 
 WINDOW_HEIGHT :: 720
 WINDOW_WIDTH :: 1280
@@ -95,15 +126,19 @@ draw :: proc(this: ^RenderContext, index: u32) -> vk.Result {
 
     vk.BeginCommandBuffer(cmd, &begin_info) or_return
 
-    clear_value: vk.ClearValue = { color = { float32 = [4]f32{ 0.01, 0.01, 0.033, 1.0 }}}
+    
+    clear_values := []vk.ClearValue {
+        { color = { float32 = [4]f32{ 0.01, 0.01, 0.033, 1.0 }}},
+        { depthStencil = { depth = 1 }},
+    }
 
     rp_begin: vk.RenderPassBeginInfo = {
         sType = .RENDER_PASS_BEGIN_INFO,
         renderPass = this.render_pass,
         framebuffer = this.framebuffers[index],
         renderArea = {extent = this.swapchain.extent},
-        clearValueCount = 1,
-        pClearValues = &clear_value,
+        clearValueCount = u32(len(clear_values)),
+        pClearValues = raw_data(clear_values),
     }
 
     vk.CmdBeginRenderPass(cmd, &rp_begin, vk.SubpassContents.INLINE)
@@ -133,13 +168,16 @@ draw :: proc(this: ^RenderContext, index: u32) -> vk.Result {
                                              100)
     camera.proj[1][1] *= -1
 
-    buffers_write(this.render_data.camera_ubo, &camera, size_of(CameraData), uintptr(size_of(CameraData) * index))
+    cam_buffer := buffers_to_mtptr(this.render_data.camera_ubo, CameraData)
+    cam_buffer[index] = camera
 
     last_material : ^materials.Material = nil
 
     for i in 0..<OBJECT_COUNT {
         transform := this.render_data.model[i] * la.matrix4_rotate_f32(f32(g_time) / 1000, { 0, 0, 1 })
-        buffers_write(this.render_data.object_ubo, &transform, size_of(la.Matrix4f32), uintptr(i * size_of(la.Matrix4f32)))
+
+        object_buffer := buffers_to_mtptr(this.render_data.object_ubo, la.Matrix4f32)
+        object_buffer[i] = transform
 
         material := this.render_data.materials[i]
         vertex_buffer := this.render_data.vertex_buffers[i]
@@ -221,27 +259,25 @@ resize :: proc(this: ^RenderContext) -> bool {
         glfw.WaitEvents()
     }
 
-    destroy_swapchain_framebuffers(this.device, this.framebuffers)
+    swapchain_destroy_framebuffers(this.device, this.framebuffers)
 
-    this.swapchain = create_swapchain(this.device,
+    this.swapchain = swapchain_create(this.device,
                                       this.gpu, 
                                       this.surface, 
                                       this.queue_indices,
                                       this.swapchain.handle)
 
-    this.framebuffers = create_swapchain_framebuffers(this.device, this.render_pass, this.swapchain)
+    this.framebuffers = swapchain_create_framebuffers(this.device,
+                                                      this.render_pass,
+                                                      this.swapchain,
+                                                      this.depth_image)
 
     this.window_needs_resize = false
 
     return true
 }
 
-
 init :: proc(this: ^RenderContext) {
-    vk_assert(init_all(this))
-}
-
-init_all :: proc(this: ^RenderContext) -> vk.Result {
     this.window = init_window(this)
 
     // Vulkan does not come loaded into Odin by default, 
@@ -260,16 +296,22 @@ init_all :: proc(this: ^RenderContext) -> vk.Result {
 
     // Load the rest of Vulkan's functions.
     vk.load_proc_addresses(this.instance)
+    
+    this.debug_messenger = builders.create_debug_utils_messenger(this.instance, debug_messenger_callback)
 
     this.gpu, this.surface, this.queue_indices = gpu_create(this.instance, this.window)
 
-    init_logical_device(this) or_return
+    this.device, this.queues = device_create(this.gpu, this.queue_indices)
 
-    this.swapchain = create_swapchain(this.device, this.gpu, this.surface, this.queue_indices)
+    this.swapchain = swapchain_create(this.device,
+                                      this.gpu, 
+                                      this.surface, 
+                                      this.queue_indices)
 
-    this.render_pass = builders.create_render_pass(this.device, this.swapchain.format.format) 
+    this.render_pass = builders.create_render_pass(this.device,
+                                                   this.swapchain.format.format) 
 
-    init_perframes(this) or_return
+    this.perframes = create_perframes(this.device, len(this.swapchain.images))
 
     buffers_init({
         physicalDevice = this.gpu,
@@ -280,12 +322,21 @@ init_all :: proc(this: ^RenderContext) -> vk.Result {
 
     buffers_init_staging(this.device, this.queues[.GRAPHICS])
 
-    this.descriptor_pool = create_descriptor_pool(this.device, 1000)
+    this.descriptor_pool = descriptors_create_pool(this.device, 1000)
 
     this.render_data = init_render_data(this)
+    
+    extent := vk.Extent3D {
+        this.swapchain.extent.width, 
+        this.swapchain.extent.height,
+        1,
+    }
+    this.depth_image = buffers_create_image(this.device, extent)
 
-    this.framebuffers = create_swapchain_framebuffers(this.device, this.render_pass, this.swapchain)
-    return .SUCCESS
+    this.framebuffers = swapchain_create_framebuffers(this.device,
+                                                      this.render_pass,
+                                                      this.swapchain,
+                                                      this.depth_image)
 }
 
 init_window :: proc(this: ^RenderContext) -> glfw.WindowHandle {
@@ -309,105 +360,21 @@ init_window :: proc(this: ^RenderContext) -> glfw.WindowHandle {
     return window;
 }
 
-
-init_logical_device :: proc(using ctx: ^RenderContext) -> vk.Result {
-    count: u32
-    vk.EnumerateDeviceExtensionProperties(gpu, nil, &count, nil) or_return
-    extensions := make([]vk.ExtensionProperties, count)
-    defer delete(extensions)
-    vk.EnumerateDeviceExtensionProperties(gpu, nil, &count, raw_data(extensions)) or_return
-
-    required_extensions := make([dynamic]cstring, 0, 2)
-    defer delete(required_extensions)
-
-    append(&required_extensions, vk.KHR_SWAPCHAIN_EXTENSION_NAME)
-
-    // If portability subset is found in device extensions,
-    // it must be enabled.
-    portability_found := false
-    for extension in extensions {
-        e := extension
-        switch (cstring(raw_data(&e.extensionName))) {
-        case "VK_KHR_portability_subset":
-            portability_found = true
-            break
-
-        }
-    }
-
-    if portability_found {
-        append(&required_extensions, "VK_KHR_portability_subset")
-    }
-
-
-    // Unused
-    queuePriority: f32 = 1
-
-    queue_create_info: vk.DeviceQueueCreateInfo = {
-        sType            = vk.StructureType.DEVICE_QUEUE_CREATE_INFO,
-        queueFamilyIndex = u32(queue_indices[.GRAPHICS]),
-        queueCount       = 1,
-        pQueuePriorities = &queuePriority,
-    }
-
-    shader_features: vk.PhysicalDeviceShaderDrawParametersFeatures = {
-        sType                = .PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES,
-        shaderDrawParameters = true,
-    }
-
-    device_create_info: vk.DeviceCreateInfo = {
-        sType                   = .DEVICE_CREATE_INFO,
-        enabledExtensionCount   = u32(len(required_extensions)),
-        ppEnabledExtensionNames = raw_data(required_extensions),
-        queueCreateInfoCount    = 1,
-        pQueueCreateInfos       = &queue_create_info,
-        pNext                   = &shader_features,
-    }
-
-    vk.CreateDevice(gpu, &device_create_info, nil, &device) or_return
-
-    vk.GetDeviceQueue(device, u32(queue_indices[.GRAPHICS]), 0, &queues[.GRAPHICS])
-    vk.GetDeviceQueue(device, u32(queue_indices[.PRESENT]), 0, &queues[.PRESENT])
-
-    return .SUCCESS
-}
-
-init_perframes :: proc(using ctx: ^RenderContext) -> vk.Result {
-    perframes = make([]Perframe, len(ctx.swapchain.images))
+create_perframes :: proc(device: vk.Device, count: int) ->
+(perframes: []Perframe) {
+    perframes = make([]Perframe, count)
 
     for _, i in perframes {
         p := &perframes[i]
-        p.queue_index = uint(i)
-
-        create_info: vk.SemaphoreCreateInfo = {
-            sType = .SEMAPHORE_CREATE_INFO,
-        }
-        vk.CreateSemaphore(device, &create_info, nil, &perframes[i].image_available)
-        vk.CreateSemaphore(device, &create_info, nil, &perframes[i].render_finished)
-
-        fence_info: vk.FenceCreateInfo = {.FENCE_CREATE_INFO, nil, {.SIGNALED}}
-        vk.CreateFence(device, &fence_info, nil, &p.in_flight_fence) or_return
-
-        command_pool_create_info: vk.CommandPoolCreateInfo = {
-            sType = .COMMAND_POOL_CREATE_INFO,
-            flags = {.TRANSIENT, .RESET_COMMAND_BUFFER},
-            queueFamilyIndex = u32(queue_indices[.GRAPHICS]),
-        }
-
-        vk.CreateCommandPool(device, &command_pool_create_info, nil, &p.command_pool) or_return
-
-        command_buffer_info: vk.CommandBufferAllocateInfo = {
-            sType              = .COMMAND_BUFFER_ALLOCATE_INFO,
-            commandPool        = p.command_pool,
-            level              = .PRIMARY,
-            commandBufferCount = 1,
-        }
-
-        vk.AllocateCommandBuffers(device, &command_buffer_info, &p.command_buffer) or_return
-
+        p.index = uint(i)
+        p.image_available = builders.create_semaphore(device)
+        p.render_finished = builders.create_semaphore(device)
+        p.in_flight_fence = builders.create_fence(device, { .SIGNALED })
+        p.command_pool    = builders.create_command_pool(device, { .TRANSIENT, .RESET_COMMAND_BUFFER })
+        p.command_buffer  = builders.create_command_buffer(device, p.command_pool)
     }
 
-    return .SUCCESS
+    return perframes
 }
 
 init_render_data :: proc(this: ^RenderContext) -> (render_data: RenderData) {
@@ -447,9 +414,6 @@ init_render_data :: proc(this: ^RenderContext) -> (render_data: RenderData) {
     buffers_write(render_data.index_buffers[0], &cube.indices)
     
     buffers_flush_stage()
-
-    
-
     return render_data
 }
 
@@ -457,7 +421,7 @@ cleanup :: proc(this: ^RenderContext) {
     vk.DeviceWaitIdle(this.device)
 
     cleanup_perframes(this)
-    destroy_swapchain(this.device, this.swapchain)
+    swapchain_destroy(this.device, this.swapchain)
 
     vk.DestroySurfaceKHR(this.instance, this.surface, nil)
     vk.DestroyDebugUtilsMessengerEXT(this.instance, this.debug_messenger, nil)
@@ -475,8 +439,6 @@ cleanup_perframes :: proc(using ctx: ^RenderContext) {
     }
     delete(perframes)
 }
-
-
 
 key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods: i32) {
     if key == glfw.KEY_ESCAPE && action == glfw.PRESS {

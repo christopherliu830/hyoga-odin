@@ -4,43 +4,13 @@ import la "core:math/linalg"
 
 import "vendor:glfw"
 import vk "vendor:vulkan"
+import "pkgs:vma"
 
-import "vma"
 import "materials"
 import "common"
 
-RenderContext :: struct {
-    debug_messenger: vk.DebugUtilsMessengerEXT,
-
-    // Nested structs
-    perframes:       []Perframe,
-    swapchain:       Swapchain,
-    framebuffers:    []vk.Framebuffer,
-    render_pass:     vk.RenderPass,
-
-    // Handles
-    instance:        vk.Instance,
-    device:          vk.Device,
-    gpu:             vk.PhysicalDevice,
-    surface:         vk.SurfaceKHR,
-    window:          glfw.WindowHandle,
-    descriptor_pool: vk.DescriptorPool,
-
-    render_data:     RenderData,
-    camera_data:     CameraData,
-    unlit_effect:    materials.ShaderEffect,
-    unlit_pass:      materials.ShaderPass,
-    unlit_mat:       materials.Material,
-
-    // Queues
-    queue_indices:   [QueueFamily]int,
-    queues:          [QueueFamily]vk.Queue,
-
-    window_needs_resize: bool,
-}
-
 Perframe :: struct {
-    queue_index:     uint,
+    index:     uint,
     in_flight_fence: vk.Fence,
     command_pool:    vk.CommandPool,
     command_buffer:  vk.CommandBuffer,
@@ -51,6 +21,12 @@ Perframe :: struct {
 QueueFamily :: enum {
     GRAPHICS,
     PRESENT,
+    TRANSFER,
+}
+
+Queue :: struct {
+    index: int,
+    handle: vk.Queue
 }
 
 RenderData :: struct {
@@ -120,6 +96,14 @@ BufferType :: enum {
 
 Buffer :: struct {
     handle:      vk.Buffer,
+    allocation:  vma.Allocation,
+    size:        int,
+    mapped_ptr:  rawptr,
+}
+
+Image :: struct {
+    handle:      vk.Image,
+    view:        vk.ImageView,
     allocation:  vma.Allocation,
     size:        int,
     mapped_ptr:  rawptr,

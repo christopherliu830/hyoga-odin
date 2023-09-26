@@ -21,7 +21,7 @@ gpu_create :: proc(instance: vk.Instance, window: glfw.WindowHandle) ->
         queues, qs_found := gpu_choose_queues(gpu, surface)
 
         if qs_found {
-            log.infof("Enabled GPU: %s\n", &properties.deviceName)
+            log.infof("Using GPU: %s\n", transmute(cstring)(&properties.deviceName))
             return gpu, surface, queues
         }
 
@@ -35,11 +35,10 @@ gpu_choose_queues :: proc(gpu: vk.PhysicalDevice, surface: vk.SurfaceKHR) ->
     qf_props := gpu_make_queue_family_properties(gpu)
     defer delete(qf_props)
 
-    q_indices := [QueueFamily]int { .GRAPHICS = -1, .PRESENT = -1 }
+    qis := [QueueFamily]int { .GRAPHICS = -1, .PRESENT = -1, .TRANSFER = -1 }
 
-    all_queues_found = false
     for queue, index in qf_props {
-        if q_indices[.PRESENT] == -1 {
+        if qis[.PRESENT] == -1 {
             supported: b32
             vk_assert(vk.GetPhysicalDeviceSurfaceSupportKHR(
                 gpu,
@@ -47,22 +46,26 @@ gpu_choose_queues :: proc(gpu: vk.PhysicalDevice, surface: vk.SurfaceKHR) ->
                 surface,
                 &supported,
             ))
-            log.debug("supported", supported)
-            if supported do q_indices[.PRESENT] = index
+            if supported do qis[.PRESENT] = index
         } 
-        if q_indices[.GRAPHICS] == -1 {
-            log.debug("flags", queue.queueFlags)
-            if .GRAPHICS in queue.queueFlags {
-                q_indices[.GRAPHICS] = index
-            }
+
+        if qis[.GRAPHICS] == -1 || qis[.GRAPHICS] == qis[.PRESENT] {
+            if .GRAPHICS in queue.queueFlags do qis[.GRAPHICS] = index 
         } 
-        if q_indices[.GRAPHICS] != -1 &&  q_indices[.PRESENT] != -1 {
-            all_queues_found = true
-            break
+                
+        if qis[.TRANSFER] == -1 || qis[.TRANSFER] == qis[.GRAPHICS] {
+            if .TRANSFER in queue.queueFlags do qis[.TRANSFER] = index
+        } 
+
+        // break when all queues are found
+        unfound_qs := 0
+        for q in qis do if q == -1 do unfound_qs += 1
+        if unfound_qs == 0 {
+            return queues, true
         }
     }
 
-    return queues, all_queues_found
+    return queues, false
 }
 
 gpu_make_devices :: proc(instance: vk.Instance) -> (devices: []vk.PhysicalDevice) {
