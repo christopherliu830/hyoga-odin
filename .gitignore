@@ -1,7 +1,4 @@
 .vs
+.vscode
 
 /build
-ols.json
-
-# Tools
-node_modules

@@ -1,0 +1,33 @@
+{
+    "$schema": "https://raw.githubusercontent.com/DanielGavin/ols/master/misc/ols.schema.json",
+    "collections": [
+        {
+            "name": "core",
+            "path": "c:/Users/chris/code/odin-windows-amd64-dev-2023-08/core"
+        },
+        {
+            "name": "vendor",
+            "path": "C:/Users/chris/code/odin-windows-amd64-dev-2023-08/vendor"
+        },
+        {
+            "name": "externals",
+            "path": "externals"
+        },
+				{
+						"name": "pkgs",
+						"path": "pkgs"
+				},
+        {
+            "name": "memory",
+            "path": "src/memory"
+        },
+        {
+            "name": "graphics",
+            "path": "src/graphics"
+        }
+    ],
+    "enable_document_symbols": false,
+    "enable_semantic_tokens": true,
+    "enable_snippets": true,
+    "enable_hover": false
+}

@@ -1,5 +1,7 @@
 package graphics
 
+import "core:log"
+
 import vk "vendor:vulkan"
 
 /**
@@ -106,6 +108,7 @@ swapchain_create :: proc(device:         vk.Device,
         oldSwapchain          = old_swapchain.handle,
     }
 
+    log.debug("Swapchain create")
     vk_assert(vk.CreateSwapchainKHR(device, &swapchain_create_info, nil, &swapchain.handle))
 
     if &old_swapchain.handle != nil do  swapchain_destroy(device, old_swapchain)
@@ -144,7 +147,7 @@ swapchain_destroy :: proc(device: vk.Device, swapchain: Swapchain) {
         vk.DestroyImageView(device, image_view, nil)
     }
 
-    for image in swapchain.images do vk.DestroyImage(device, image, nil)
+    // Images controlled by swapchain do not need to be destroyed
 
     vk.DestroySwapchainKHR(device, swapchain.handle, nil)
 
@@ -183,9 +186,5 @@ swapchain_destroy_framebuffers :: proc(device: vk.Device, framebuffers: []vk.Fra
         vk.DestroyFramebuffer(device, framebuffer, nil)
     }
     delete(framebuffers)
-}
-
-swapchain_create_depth_image :: proc(extent: vk.Extent3D) {
-    
 }
 

@@ -1,6 +1,7 @@
 package graphics 
 
 import la "core:math/linalg"
+import "core:container/intrusive/list"
 
 import "vendor:glfw"
 import vk "vendor:vulkan"
@@ -9,12 +10,17 @@ import "pkgs:vma"
 import "materials"
 import "common"
 
+CameraData :: struct {
+    view: la.Matrix4f32,
+    proj: la.Matrix4f32,
+}
+
 Perframe :: struct {
     index:     uint,
     in_flight_fence: vk.Fence,
     command_pool:    vk.CommandPool,
     command_buffer:  vk.CommandBuffer,
-    image_available: vk.Semaphore,
+    image_available: ^SemaphoreLink,
     render_finished: vk.Semaphore,
 }
 
@@ -29,20 +35,9 @@ Queue :: struct {
     handle: vk.Queue
 }
 
-RenderData :: struct {
-    cube:            Cube,
-    tetra:           Tetrahedron,
-    camera_ubo:      Buffer,
-    object_ubo:      Buffer,
-    model:           [OBJECT_COUNT]la.Matrix4f32,
-    vertex_buffers:  [OBJECT_COUNT]Buffer,
-    index_buffers:   [OBJECT_COUNT]Buffer,
-    materials:       [OBJECT_COUNT]^materials.Material,
-}
-
-CameraData :: struct {
-    view: la.Matrix4f32,
-    proj: la.Matrix4f32,
+SemaphoreLink :: struct {
+    link: list.Node,
+    semaphore: vk.Semaphore
 }
 
 Swapchain :: struct
@@ -99,6 +94,7 @@ Buffer :: struct {
     allocation:  vma.Allocation,
     size:        int,
     mapped_ptr:  rawptr,
+    name:        string,
 }
 
 Image :: struct {

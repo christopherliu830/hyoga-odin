@@ -18,9 +18,8 @@ ShaderEffect :: struct {
 }
 
 ShaderPass :: struct {
-    effect:          ^ShaderEffect,
-    pipeline:        vk.Pipeline,
-    pipeline_layout:          vk.PipelineLayout,
+    effect:           ^ShaderEffect,
+    pipeline:         vk.Pipeline,
 }
 
 Material :: struct {
@@ -29,9 +28,9 @@ Material :: struct {
 }
 
 create_shader_effect :: proc(device:       vk.Device,
-                             desc_layout:  LayoutType,
-                             vert_path:    string,
-                             frag_path:    string) ->
+                                       desc_layout:  LayoutType,
+                                       vert_path:    string,
+                                       frag_path:    string) ->
 (effect: ShaderEffect) {
 
     vert := builders.create_shader_module(device, read_spirv(vert_path))
@@ -55,8 +54,8 @@ create_shader_effect :: proc(device:       vk.Device,
 }
 
 create_shader_pass :: proc(device:  vk.Device,
-                          render_pass:  vk.RenderPass,
-                          effect:       ^ShaderEffect) ->
+                                     render_pass:  vk.RenderPass,
+                                     effect:       ^ShaderEffect) ->
 (pass: ShaderPass) {
 
     stage_count := len(effect.shader_stages)
@@ -78,14 +77,12 @@ create_shader_pass :: proc(device:  vk.Device,
                                              render_pass,
                                              shader_stages)
 
-    pass.pipeline_layout = effect.pipeline_layout
-
     pass.effect = effect
 
     return pass
 }
 
-create_material :: proc(device: vk.Device, pool: vk.DescriptorPool, shader_pass: ^ShaderPass) ->
+create :: proc(device: vk.Device, pool: vk.DescriptorPool, shader_pass: ^ShaderPass) ->
 (mat: Material) {
     assert(shader_pass.effect != nil)
 
@@ -99,5 +96,23 @@ read_spirv :: proc(path: string) -> []u8 {
     log.debugf("Loading SPIRV %s", path)
     data, success := os.read_entire_file(path)
     return data
+}
+
+destroy :: proc { destroy_shader_effect, destroy_shader_pass }
+
+destroy_shader_effect :: proc(device: vk.Device, effect: ShaderEffect) {
+    vk.DestroyPipelineLayout(device, effect.pipeline_layout, nil)
+
+    for layout in effect.desc_layouts {
+        vk.DestroyDescriptorSetLayout(device, layout, nil)
+    }
+
+    for stage in effect.shader_stages {
+        vk.DestroyShaderModule(device, stage.module, nil)
+    }
+}
+
+destroy_shader_pass :: proc(device: vk.Device, pass: ShaderPass) {
+    vk.DestroyPipeline(device, pass.pipeline, nil)
 }
 

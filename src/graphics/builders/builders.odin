@@ -65,7 +65,7 @@ create_fence :: proc(device: vk.Device, flags: vk.FenceCreateFlags = {}) ->
     return fence
 }
 
-create_instance :: proc(extensions: []cstring, layers: []cstring) ->
+create_instance :: proc(extensions: []cstring, layers: []cstring = nil) ->
 (instance: vk.Instance) {
     application_info: vk.ApplicationInfo = {
         sType            = .APPLICATION_INFO,

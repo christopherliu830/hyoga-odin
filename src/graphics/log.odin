@@ -60,8 +60,8 @@ backtrace :: proc() {
     defer bt.backtrace_delete(trace)
 
     messages, err := bt.backtrace_messages(trace)
-    fmt.assertf(err == nil, "err: %v", err)
     defer bt.messages_delete(messages)
+    if err != nil do return
 
     fmt.println("[back trace]")
     // Skip obacktracing messages

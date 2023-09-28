@@ -3,6 +3,7 @@ package graphics
 import "core:mem"
 import "core:log"
 import "core:fmt"
+import "core:strconv"
 
 import vk "vendor:vulkan"
 import bt "pkgs:obacktracing"
@@ -47,24 +48,29 @@ vma_allocator: vma.Allocator
 @private
 staging: StagingPlatform
 
-buffers_init :: proc(info: vma.AllocatorCreateInfo) {
+buffers_init :: proc(info: vma.AllocatorCreateInfo, transfer_queue: vk.Queue) {
     info := info
 
     vulkan_functions := vma.create_vulkan_functions()
     info.pVulkanFunctions = &vulkan_functions
 
     vk_assert(vma.CreateAllocator(&info, &vma_allocator))
+
+    buffers_init_staging(info.device, transfer_queue) 
+    log.info("graphics::buffers Init")
 }
 
 buffers_shutdown :: proc() {
-    buffers_destroy(staging.buffer)
+    buffers_shutdown_staging()
+    vma.DestroyAllocator(vma_allocator)
+    log.info("graphics::buffers Shutdown")
 }
 
 /**
 * Create a buffer.
 */
 buffers_create :: proc(size:   int,
-               flags:  CreateFlags) ->
+                       flags:  CreateFlags) ->
 
 (buffer: Buffer) {
     assert(flags.usage != nil)
@@ -94,6 +100,7 @@ buffers_create :: proc(size:   int,
 
     buffer.size = size
     buffer.mapped_ptr = allocation_info.pMappedData
+    log.infof("Buffer %x Created", buffer.handle)
 
     return buffer
 }
@@ -145,7 +152,15 @@ buffers_create_image :: proc(device: vk.Device, extent: vk.Extent3D) ->
     return image
 }
 
-buffers_destroy :: proc(buffer: Buffer) {
+buffers_destroy :: proc { buffers_destroy_image, buffers_destroy_buffer }
+
+buffers_destroy_image :: proc(device: vk.Device, image: Image) {
+    vk.DestroyImageView(device, image.view, nil)
+    vma.DestroyImage(vma_allocator, image.handle, image.allocation)
+}
+
+buffers_destroy_buffer :: proc(buffer: Buffer) {
+    log.infof("Buffer %x destroyed", buffer.handle, buffer.name)
     vma.DestroyBuffer(vma_allocator, buffer.handle, buffer.allocation)
 }
 
@@ -189,6 +204,12 @@ buffers_init_staging :: proc(device: vk.Device, queue: vk.Queue) {
     }
 
     vk_assert(vk.BeginCommandBuffer(staging.command_buffer, &begin_info))
+}
+
+buffers_shutdown_staging :: proc() {
+    vk.DestroyFence(staging.device, staging.fence, nil)
+    vk.DestroyCommandPool(staging.device, staging.command_pool, nil)
+    buffers_destroy(staging.buffer)
 }
 
 // Move device-local memory to the GPU.
@@ -239,7 +260,6 @@ buffers_stage :: proc(data:       rawptr,
 
     staging.offset = uintptr(mem.align_forward(rawptr(staging.offset), uintptr(alignment)))
 
-    log.debug(size, staging.offset)
     buffers_write(staging.buffer, data, size, staging.offset)
 
     ctx: UploadContext

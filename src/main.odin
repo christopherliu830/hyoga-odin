@@ -13,11 +13,13 @@ main :: proc () {
 
     ctx: graphics.RenderContext
     graphics.init(&ctx)
-    
-    defer graphics.cleanup(&ctx)
 
     for !glfw.WindowShouldClose(ctx.window) {
         glfw.PollEvents()
         graphics.update(&ctx)
     }
+
+    graphics.cleanup(&ctx)
+
+    log.info("Exit")
 }

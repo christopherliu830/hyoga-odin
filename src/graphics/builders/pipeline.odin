@@ -10,14 +10,26 @@ create_pipeline :: proc(device:           vk.Device,
                         layout:           vk.PipelineLayout,
                         render_pass:      vk.RenderPass,
                         shader_stages:    []vk.PipelineShaderStageCreateInfo,
+                        vertex_input:     ^vk.PipelineVertexInputStateCreateInfo = nil,
+                        input_assembly:   ^vk.PipelineInputAssemblyStateCreateInfo = nil,
                         old:              vk.Pipeline = 0) ->
 (pipeline: vk.Pipeline) {
 
-    bindings := common.BINDINGS
-    attributes := common.ATTRIBUTES
-    vert     := get_vertex_input(bindings[:], attributes[:])
+    vertex_input := vertex_input
+    vertex_input_default: vk.PipelineVertexInputStateCreateInfo
+    if vertex_input == nil {
+        bindings := common.BINDINGS
+        attributes := common.ATTRIBUTES
+        vertex_input_default = get_vertex_input(bindings[:], attributes[:])
+        vertex_input = &vertex_input_default
+    }
 
-    input    := get_input_assembly()
+    input_assembly := input_assembly
+    input_assembly_default: vk.PipelineInputAssemblyStateCreateInfo
+    if input_assembly == nil {
+        input_assembly_default = get_input_assembly()
+        input_assembly = &input_assembly_default
+    }
 
     view     := get_dummy_viewport_state()
 
@@ -37,8 +49,8 @@ create_pipeline :: proc(device:           vk.Device,
             sType               = .GRAPHICS_PIPELINE_CREATE_INFO,
             stageCount          = u32(len(shader_stages)),
             pStages             = raw_data(shader_stages),
-            pVertexInputState   = &vert,
-            pInputAssemblyState = &input,
+            pVertexInputState   = vertex_input,
+            pInputAssemblyState = input_assembly,
             pViewportState      = &view,
             pRasterizationState = &raster,
             pMultisampleState   = &multi,

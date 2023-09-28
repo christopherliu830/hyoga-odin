@@ -4,6 +4,7 @@ import "core:fmt"
 import "core:log"
 import "core:runtime"
 import "core:c"
+import "core:container/intrusive/list"
 import la "core:math/linalg"
 
 import "vendor:glfw"
@@ -15,33 +16,29 @@ import "builders"
 import "common"
 
 RenderContext :: struct {
-    window:              glfw.WindowHandle,
     instance:            vk.Instance,
-    device:              vk.Device,
+    window:              glfw.WindowHandle,
     gpu:                 vk.PhysicalDevice,
-    surface:             vk.SurfaceKHR,
-
-    // Queues
     queues:              [QueueFamily]vk.Queue,
     queue_indices:       [QueueFamily]int,
-
-    // Nested structs    
-    perframes:           []Perframe,
+    device:              vk.Device,
+    surface:             vk.SurfaceKHR,
     swapchain:           Swapchain,
-    depth_image:         Image,
     render_pass:         vk.RenderPass,
+    perframes:           []Perframe,
+    semaphore_pool:      []SemaphoreLink,
+    semaphore_list:      list.List,
     framebuffers:        []vk.Framebuffer,
-
-    // Handles
     descriptor_pool:     vk.DescriptorPool,
+    depth_image:         Image,
 
     render_data:         RenderData,
     camera_data:         CameraData,
+
     unlit_effect:        materials.ShaderEffect,
     unlit_pass:          materials.ShaderPass,
     unlit_mat:           materials.Material,
 
-    debug_messenger:     vk.DebugUtilsMessengerEXT,
     window_needs_resize: bool,
 }
 
@@ -74,14 +71,15 @@ update :: proc(ctx: ^RenderContext) -> bool {
     return result != .SUCCESS
 }
 
-acquire_image :: proc(using ctx: ^RenderContext, image: ^u32) -> vk.Result {
-    signaled_semaphore := perframes[image^].image_available
+acquire_image :: proc(using this: ^RenderContext, image: ^u32) -> vk.Result {
+    assert(!list.is_empty(&semaphore_list))
+    semaphore := container_of(list.pop_front(&semaphore_list), SemaphoreLink, "link")
 
     result := vk.AcquireNextImageKHR(
         device,
         swapchain.handle,
         max(u64),
-        perframes[image^].image_available,
+        semaphore.semaphore,
         0,
         image,
     )
@@ -109,7 +107,11 @@ acquire_image :: proc(using ctx: ^RenderContext, image: ^u32) -> vk.Result {
         vk.ResetCommandPool(device, perframes[image^].command_pool, {}) or_return
     }
 
-    perframes[image^].image_available = signaled_semaphore
+    if perframes[image^].image_available != nil {
+        list.push_front(&semaphore_list, &perframes[image^].image_available.link)
+    }
+
+    perframes[image^].image_available = semaphore
 
     return .SUCCESS
 }
@@ -186,7 +188,7 @@ draw :: proc(this: ^RenderContext, index: u32) -> vk.Result {
         if last_material == nil {
             offset := size_of(CameraData) * index
             vk.CmdBindDescriptorSets(cmd, .GRAPHICS,
-                                     material.pass.pipeline_layout, 0,
+                                     material.pass.effect.pipeline_layout, 0,
                                      1, &material.descriptors[0],
                                      1, &offset)
         }
@@ -195,14 +197,14 @@ draw :: proc(this: ^RenderContext, index: u32) -> vk.Result {
             vk.CmdBindPipeline(cmd, .GRAPHICS, material.pass.pipeline)
 
             vk.CmdBindDescriptorSets(cmd, .GRAPHICS,
-                               material.pass.pipeline_layout, 2,
+                               material.pass.effect.pipeline_layout, 2,
                                1, &material.descriptors[2],
                                0, nil)
         }
 
         dynamic_offset := u32(size_of(la.Matrix4f32) * i)
         vk.CmdBindDescriptorSets(cmd, .GRAPHICS,
-                                 material.pass.pipeline_layout, 3,
+                                 material.pass.effect.pipeline_layout, 3,
                                  1, &material.descriptors[3],
                                  1, &dynamic_offset)
 
@@ -216,14 +218,14 @@ draw :: proc(this: ^RenderContext, index: u32) -> vk.Result {
 
     vk.EndCommandBuffer(cmd) or_return
 
-    wait_stage: vk.PipelineStageFlags = {.COLOR_ATTACHMENT_OUTPUT}
+    wait_stage: vk.PipelineStageFlags = { .COLOR_ATTACHMENT_OUTPUT }
 
     submit_info: vk.SubmitInfo = {
         sType                = .SUBMIT_INFO,
         commandBufferCount   = 1,
         pCommandBuffers      = &cmd,
         waitSemaphoreCount   = 1,
-        pWaitSemaphores      = &this.perframes[index].image_available,
+        pWaitSemaphores      = &this.perframes[index].image_available.semaphore,
         pWaitDstStageMask    = &wait_stage,
         signalSemaphoreCount = 1,
         pSignalSemaphores    = &this.perframes[index].render_finished,
@@ -290,15 +292,11 @@ init :: proc(this: ^RenderContext) {
     extensions: [dynamic]cstring
     defer delete(extensions)
     append(&extensions, ..glfw.GetRequiredInstanceExtensions())
-    append(&extensions, vk.EXT_DEBUG_UTILS_EXTENSION_NAME)
-    layers := []cstring { "VK_LAYER_KHRONOS_validation" }
-    this.instance = builders.create_instance(extensions[:], layers)
+    this.instance = builders.create_instance(extensions[:])
 
     // Load the rest of Vulkan's functions.
     vk.load_proc_addresses(this.instance)
     
-    this.debug_messenger = builders.create_debug_utils_messenger(this.instance, debug_messenger_callback)
-
     this.gpu, this.surface, this.queue_indices = gpu_create(this.instance, this.window)
 
     this.device, this.queues = device_create(this.gpu, this.queue_indices)
@@ -313,14 +311,14 @@ init :: proc(this: ^RenderContext) {
 
     this.perframes = create_perframes(this.device, len(this.swapchain.images))
 
+    this.semaphore_pool, this.semaphore_list = create_sync_objects(this.device, int(this.swapchain.image_count) + 1)
+
     buffers_init({
         physicalDevice = this.gpu,
         instance = this.instance,
         device = this.device,
         vulkanApiVersion = vk.API_VERSION_1_3,
-    })
-
-    buffers_init_staging(this.device, this.queues[.GRAPHICS])
+    }, this.queues[.TRANSFER])
 
     this.descriptor_pool = descriptors_create_pool(this.device, 1000)
 
@@ -367,7 +365,7 @@ create_perframes :: proc(device: vk.Device, count: int) ->
     for _, i in perframes {
         p := &perframes[i]
         p.index = uint(i)
-        p.image_available = builders.create_semaphore(device)
+        p.image_available = nil
         p.render_finished = builders.create_semaphore(device)
         p.in_flight_fence = builders.create_fence(device, { .SIGNALED })
         p.command_pool    = builders.create_command_pool(device, { .TRANSIENT, .RESET_COMMAND_BUFFER })
@@ -377,9 +375,22 @@ create_perframes :: proc(device: vk.Device, count: int) ->
     return perframes
 }
 
+create_sync_objects :: proc(device: vk.Device, count: int) ->
+(semaphores: []SemaphoreLink, sem_list: list.List) {
+    semaphores = make([]SemaphoreLink, count)[0:count]
+    for _, i in semaphores {
+        semaphores[i] = { semaphore = builders.create_semaphore(device) }
+        list.push_front(&sem_list, &semaphores[i].link)
+    }
+    return semaphores, sem_list
+}
+
 init_render_data :: proc(this: ^RenderContext) -> (render_data: RenderData) {
-    render_data.camera_ubo = buffers_create(size_of(CameraData) * int(this.swapchain.image_count), buffers_default_flags(.UNIFORM_DYNAMIC))
-    render_data.object_ubo = buffers_create(size_of(la.Matrix4f32) * OBJECT_COUNT, buffers_default_flags(.UNIFORM_DYNAMIC))
+    render_data.camera_ubo = buffers_create(size_of(CameraData) * int(this.swapchain.image_count),
+                                            buffers_default_flags(.UNIFORM_DYNAMIC))
+
+    render_data.object_ubo = buffers_create(size_of(la.Matrix4f32) * OBJECT_COUNT, 
+                                            buffers_default_flags(.UNIFORM_DYNAMIC))
 
     render_data.cube = create_cube()
     render_data.tetra = create_tetrahedron()
@@ -392,7 +403,7 @@ init_render_data :: proc(this: ^RenderContext) -> (render_data: RenderData) {
                                                    "assets/shaders/shader.frag.spv")
 
     this.unlit_pass = materials.create_shader_pass(this.device, this.render_pass, &this.unlit_effect)
-    this.unlit_mat = materials.create_material(this.device, this.descriptor_pool, &this.unlit_pass)
+    this.unlit_mat = materials.create(this.device, this.descriptor_pool, &this.unlit_pass)
 
     builders.bind_descriptor_set(this.device,
                                  { render_data.camera_ubo.handle, 0, size_of(CameraData) },
@@ -417,15 +428,44 @@ init_render_data :: proc(this: ^RenderContext) -> (render_data: RenderData) {
     return render_data
 }
 
+cleanup_render_data :: proc(this: ^RenderContext) {
+    materials.destroy(this.device, this.unlit_pass)
+    materials.destroy(this.device, this.unlit_effect)
+
+    r := this.render_data
+    buffers_destroy(r.camera_ubo)
+    buffers_destroy(r.object_ubo)
+    for i in 0..<OBJECT_COUNT {
+        buffers_destroy(r.vertex_buffers[i])
+        buffers_destroy(r.index_buffers[i])
+    }
+}
+
 cleanup :: proc(this: ^RenderContext) {
     vk.DeviceWaitIdle(this.device)
 
-    cleanup_perframes(this)
+    cleanup_render_data(this)
+
+    vk.DestroyDescriptorPool(this.device, this.descriptor_pool, nil)
+
+    swapchain_destroy_framebuffers(this.device, this.framebuffers)
+
+    vk.DestroyRenderPass(this.device, this.render_pass, nil)
+
+    buffers_destroy(this.device, this.depth_image)
+
     swapchain_destroy(this.device, this.swapchain)
 
+    for sem in this.semaphore_pool do vk.DestroySemaphore(this.device, sem.semaphore, nil)
+    delete(this.semaphore_pool)
+
+    cleanup_perframes(this)
+
+    buffers_shutdown()
+
+    vk.DestroyDevice(this.device, nil)
     vk.DestroySurfaceKHR(this.instance, this.surface, nil)
-    vk.DestroyDebugUtilsMessengerEXT(this.instance, this.debug_messenger, nil)
-    vk.DestroyInstance(nil, nil)
+    vk.DestroyInstance(this.instance, nil)
 
     glfw.DestroyWindow(this.window)
     glfw.Terminate()
