@@ -3,7 +3,5 @@
 /build
 ols.json
 
-externals/vma
-
 # Tools
 node_modules
