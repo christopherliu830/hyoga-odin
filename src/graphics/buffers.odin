@@ -181,7 +181,7 @@ buffers_default_flags :: proc(type: BufferType) ->
         case .UNIFORM_DYNAMIC:
             flags.usage = { .UNIFORM_BUFFER }
             flags.vma = { .HOST_ACCESS_SEQUENTIAL_WRITE, .MAPPED }
-            flags.required = { .HOST_VISIBLE , .HOST_COHERENT }
+            flags.required = { .HOST_VISIBLE }
     }
     return flags
 }
@@ -247,8 +247,8 @@ buffers_write :: proc(buffer: Buffer,
 }
             
 buffers_stage :: proc(data:       rawptr,
-              size:       int,
-              alignment:  int = mem.DEFAULT_ALIGNMENT) -> UploadContext {
+                      size:       int,
+                      alignment:  int = mem.DEFAULT_ALIGNMENT) -> UploadContext {
     max_size := staging.buffer.size
     assert(size < max_size)
 
@@ -274,6 +274,7 @@ buffers_stage :: proc(data:       rawptr,
 
 buffers_flush_stage :: proc() {
     if staging.submission_in_flight || staging.offset == 0 do return
+    log.info("Flushing stage buffer...")
 
     staging.submission_in_flight = true
 

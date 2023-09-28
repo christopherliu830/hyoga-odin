@@ -9,16 +9,16 @@ import "pkgs:vma"
 
 import "materials"
 
-CameraData :: struct {
-    view: la.Matrix4f32,
-    proj: la.Matrix4f32,
-}
+vec3 :: la.Vector3f32
+vec4 :: la.Vector4f32
+mat4 :: la.Matrix4f32
 
 Perframe :: struct {
     index:     uint,
     in_flight_fence: vk.Fence,
     command_pool:    vk.CommandPool,
     command_buffer:  vk.CommandBuffer,
+    descriptor_pool: vk.DescriptorPool,
     image_available: ^SemaphoreLink,
     render_finished: vk.Semaphore,
 }

@@ -5,15 +5,18 @@ import "core:log"
 import vk "vendor:vulkan"
 import glfw "vendor:glfw"
 
-gpu_create :: proc(instance: vk.Instance, window: glfw.WindowHandle) ->
-(gpu: vk.PhysicalDevice, surface: vk.SurfaceKHR, queues: [QueueFamily]int) {
+gpu_create :: proc(instance: vk.Instance, window: glfw.WindowHandle) -> (
+    gpu: vk.PhysicalDevice,
+    properties: vk.PhysicalDeviceProperties,
+    surface: vk.SurfaceKHR,
+    queues: [QueueFamily]int
+) {
 
     devices := gpu_make_devices(instance)
     defer delete(devices)
 
     for _, i in devices {
         gpu = devices[i]
-        properties: vk.PhysicalDeviceProperties
         vk.GetPhysicalDeviceProperties(gpu, &properties)
 
         if surface != 0 do vk.DestroySurfaceKHR(instance, surface, nil)
@@ -22,12 +25,12 @@ gpu_create :: proc(instance: vk.Instance, window: glfw.WindowHandle) ->
 
         if qs_found {
             log.infof("Using GPU: %s\n", transmute(cstring)(&properties.deviceName))
-            return gpu, surface, queues
+            return gpu, properties, surface, queues
         }
 
     }
     assert(false)
-    return gpu, surface, queues
+    return gpu, properties, surface, queues
 }
 
 gpu_choose_queues :: proc(gpu: vk.PhysicalDevice, surface: vk.SurfaceKHR) ->

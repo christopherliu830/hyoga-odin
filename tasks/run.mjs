@@ -1,6 +1,6 @@
 #!/usr/bin/env zx
 
-const d = process.argv[2] == '-d' ? true : false
+const d = process.argv[3] === '-d' ? true : false
 
 if (d) {
 

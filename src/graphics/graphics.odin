@@ -18,20 +18,21 @@ RenderContext :: struct {
     instance:            vk.Instance,
     window:              glfw.WindowHandle,
     gpu:                 vk.PhysicalDevice,
+    gpu_properties:      vk.PhysicalDeviceProperties,
     queues:              [QueueFamily]vk.Queue,
     queue_indices:       [QueueFamily]int,
     device:              vk.Device,
     surface:             vk.SurfaceKHR,
     swapchain:           Swapchain,
     render_pass:         vk.RenderPass,
+    descriptor_pool:     vk.DescriptorPool,
     perframes:           []Perframe,
     semaphore_pool:      []SemaphoreLink,
     semaphore_list:      list.List,
     framebuffers:        []vk.Framebuffer,
-    descriptor_pool:     vk.DescriptorPool,
     depth_image:         Image,
 
-    render_data:         RenderData,
+    scene:               Scene,
     camera_data:         CameraData,
 
     unlit_effect:        materials.ShaderEffect,
@@ -153,64 +154,7 @@ draw :: proc(this: ^RenderContext, index: u32) -> vk.Result {
     scissor: vk.Rect2D = { extent = this.swapchain.extent }
     vk.CmdSetScissor(cmd, 0, 1, &scissor)
 
-    camera: CameraData
-
-    camera.view = la.matrix4_look_at(
-        la.Vector3f32 {5, 5, 5},
-        la.Vector3f32 {0, 0, 0},
-        la.Vector3f32 {0, 0, 1},
-    )
-
-    camera.proj = la.matrix4_perspective_f32(45,
-                                             f32(this.swapchain.extent.width) /
-                                             f32(this.swapchain.extent.height),
-                                             0.1,
-                                             100)
-    camera.proj[1][1] *= -1
-
-    cam_buffer := buffers_to_mtptr(this.render_data.camera_ubo, CameraData)
-    cam_buffer[index] = camera
-
-    last_material : ^materials.Material = nil
-
-    for i in 0..<OBJECT_COUNT {
-        transform := this.render_data.model[i] * la.matrix4_rotate_f32(f32(g_time) / 1000, { 0, 0, 1 })
-
-        object_buffer := buffers_to_mtptr(this.render_data.object_ubo, la.Matrix4f32)
-        object_buffer[i] = transform
-
-        material := this.render_data.materials[i]
-        vertex_buffer := this.render_data.vertex_buffers[i]
-        index_buffer := this.render_data.index_buffers[i]
-
-        if last_material == nil {
-            offset := size_of(CameraData) * index
-            vk.CmdBindDescriptorSets(cmd, .GRAPHICS,
-                                     material.pass.effect.pipeline_layout, 0,
-                                     1, &material.descriptors[0],
-                                     1, &offset)
-        }
-
-        if material != last_material {
-            vk.CmdBindPipeline(cmd, .GRAPHICS, material.pass.pipeline)
-
-            vk.CmdBindDescriptorSets(cmd, .GRAPHICS,
-                               material.pass.effect.pipeline_layout, 2,
-                               1, &material.descriptors[2],
-                               0, nil)
-        }
-
-        dynamic_offset := u32(size_of(la.Matrix4f32) * i)
-        vk.CmdBindDescriptorSets(cmd, .GRAPHICS,
-                                 material.pass.effect.pipeline_layout, 3,
-                                 1, &material.descriptors[3],
-                                 1, &dynamic_offset)
-
-        offset : vk.DeviceSize = 0
-        vk.CmdBindVertexBuffers(cmd, 0, 1, &vertex_buffer.handle, &offset)
-        vk.CmdBindIndexBuffer(cmd, index_buffer.handle, 0, .UINT16)
-        vk.CmdDrawIndexed(cmd, u32(index_buffer.size / size_of(u16)), 1, 0, 0, 0)
-    }
+    scene_render(&this.scene, cmd, int(index))
     
     vk.CmdEndRenderPass(cmd)
 
@@ -295,7 +239,10 @@ init :: proc(this: ^RenderContext) {
     // Load the rest of Vulkan's functions.
     vk.load_proc_addresses(this.instance)
     
-    this.gpu, this.surface, this.queue_indices = gpu_create(this.instance, this.window)
+    this.gpu,
+    this.gpu_properties,
+    this.surface,
+    this.queue_indices = gpu_create(this.instance, this.window)
 
     this.device, this.queues = device_create(this.gpu, this.queue_indices)
 
@@ -309,6 +256,8 @@ init :: proc(this: ^RenderContext) {
 
     this.perframes = create_perframes(this.device, len(this.swapchain.images))
 
+    this.descriptor_pool = descriptors_create_pool(this.device, 1000) 
+
     this.semaphore_pool, this.semaphore_list = create_sync_objects(this.device, int(this.swapchain.image_count) + 1)
 
     buffers_init({
@@ -318,9 +267,9 @@ init :: proc(this: ^RenderContext) {
         vulkanApiVersion = vk.API_VERSION_1_3,
     }, this.queues[.TRANSFER])
 
-    this.descriptor_pool = descriptors_create_pool(this.device, 1000)
+    scene_init(&this.scene, scene_create_camera(this.swapchain))
 
-    this.render_data = init_render_data(this)
+    init_render_data(this)
     
     extent := vk.Extent3D {
         this.swapchain.extent.width, 
@@ -383,15 +332,9 @@ create_sync_objects :: proc(device: vk.Device, count: int) ->
     return semaphores, sem_list
 }
 
-init_render_data :: proc(this: ^RenderContext) -> (render_data: RenderData) {
-    render_data.camera_ubo = buffers_create(size_of(CameraData) * int(this.swapchain.image_count),
+init_render_data :: proc(this: ^RenderContext) {
+    this.scene.object_ubo = buffers_create(size_of(mat4) * OBJECT_COUNT, 
                                             buffers_default_flags(.UNIFORM_DYNAMIC))
-
-    render_data.object_ubo = buffers_create(size_of(la.Matrix4f32) * OBJECT_COUNT, 
-                                            buffers_default_flags(.UNIFORM_DYNAMIC))
-
-    render_data.cube = create_cube()
-    render_data.tetra = create_tetrahedron()
 
     cube := create_cube()
     
@@ -405,33 +348,32 @@ init_render_data :: proc(this: ^RenderContext) -> (render_data: RenderData) {
     this.unlit_mat = materials.create(this.device, this.descriptor_pool, &this.unlit_pass)
 
     builders.bind_descriptor_set(this.device,
-                                 { render_data.camera_ubo.handle, 0, size_of(CameraData) },
+                                 { this.scene.cam_data.buffer.handle, 0, size_of(Camera) },
                                  .UNIFORM_BUFFER_DYNAMIC, 
                                  this.unlit_mat.descriptors[0])
 
     builders.bind_descriptor_set(this.device,
-                                 { render_data.object_ubo.handle, 0, size_of(la.Matrix4f32) },
+                                 { this.scene.object_ubo.handle, 0, size_of(mat4) },
                                  .UNIFORM_BUFFER_DYNAMIC, 
                                  this.unlit_mat.descriptors[3])
 
-    render_data.model[0] = la.matrix4_translate_f32(la.Vector3f32 {1, 0, 0})
-    render_data.materials[0] = &this.unlit_mat
+    this.scene.model[0] = la.matrix4_translate_f32(vec3 {1, 0, 0})
+    this.scene.materials[0] = &this.unlit_mat
 
-    render_data.vertex_buffers[0] = buffers_create(size_of(cube.vertices), buffers_default_flags(.VERTEX))
-    buffers_write(render_data.vertex_buffers[0], &cube.vertices)
+    this.scene.vertex_buffers[0] = buffers_create(size_of(cube.vertices), buffers_default_flags(.VERTEX))
+    buffers_write(this.scene.vertex_buffers[0], &cube.vertices)
 
-    render_data.index_buffers[0] = buffers_create(size_of(cube.indices), buffers_default_flags(.INDEX))
-    buffers_write(render_data.index_buffers[0], &cube.indices)
+    this.scene.index_buffers[0] = buffers_create(size_of(cube.indices), buffers_default_flags(.INDEX))
+    buffers_write(this.scene.index_buffers[0], &cube.indices)
     
     buffers_flush_stage()
-    return render_data
 }
 
 cleanup_render_data :: proc(this: ^RenderContext) {
     materials.destroy(this.device, this.unlit_pass)
     materials.destroy(this.device, this.unlit_effect)
 
-    r := this.render_data
+    r := this.scene
     buffers_destroy(r.camera_ubo)
     buffers_destroy(r.object_ubo)
     for i in 0..<OBJECT_COUNT {
