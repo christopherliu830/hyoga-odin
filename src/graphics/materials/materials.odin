@@ -8,8 +8,14 @@ import vk "vendor:vulkan"
 
 import "../builders"
 
+VertexLayout :: struct {
+    bindings: []vk.VertexInputBindingDescription,
+    attributes: []vk.VertexInputAttributeDescription,
+}
+
 ShaderEffect :: struct {
     pipeline_layout: vk.PipelineLayout,
+    vertex_layout:   VertexLayout,
     desc_layouts:    [4]vk.DescriptorSetLayout,
     shader_stages:   [2]struct {
         module: vk.ShaderModule,
@@ -27,10 +33,11 @@ Material :: struct {
     descriptors: [4]vk.DescriptorSet,
 }
 
-create_shader_effect :: proc(device:       vk.Device,
-                                       desc_layout:  LayoutType,
-                                       vert_path:    string,
-                                       frag_path:    string) ->
+create_shader_effect :: proc(device:         vk.Device,
+                             desc_layout:    LayoutType,
+                             vertex_layout:  VertexLayout,
+                             vert_path:      string,
+                             frag_path:      string) ->
 (effect: ShaderEffect) {
 
     vert := builders.create_shader_module(device, read_spirv(vert_path))
@@ -50,12 +57,14 @@ create_shader_effect :: proc(device:       vk.Device,
 
     effect.pipeline_layout = builders.create_pipeline_layout(device, effect.desc_layouts[:])
 
+    effect.vertex_layout = vertex_layout
+
     return effect
 }
 
 create_shader_pass :: proc(device:  vk.Device,
-                                     render_pass:  vk.RenderPass,
-                                     effect:       ^ShaderEffect) ->
+                           render_pass:  vk.RenderPass,
+                           effect:       ^ShaderEffect) ->
 (pass: ShaderPass) {
 
     stage_count := len(effect.shader_stages)
@@ -72,10 +81,12 @@ create_shader_pass :: proc(device:  vk.Device,
     }
 
 
+    vertex_input := builders.get_vertex_input(effect.vertex_layout.bindings, effect.vertex_layout.attributes)
     pass.pipeline = builders.create_pipeline(device,
-                                             effect.pipeline_layout,
-                                             render_pass,
-                                             shader_stages)
+                                             layout = effect.pipeline_layout,
+                                             render_pass = render_pass,
+                                             vertex_input = &vertex_input,
+                                             stages = shader_stages)
 
     pass.effect = effect
 

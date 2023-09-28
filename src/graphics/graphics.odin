@@ -13,7 +13,6 @@ import "pkgs:vma"
 
 import "materials"
 import "builders"
-import "common"
 
 RenderContext :: struct {
     instance:            vk.Instance,
@@ -128,7 +127,6 @@ draw :: proc(this: ^RenderContext, index: u32) -> vk.Result {
 
     vk.BeginCommandBuffer(cmd, &begin_info) or_return
 
-    
     clear_values := []vk.ClearValue {
         { color = { float32 = [4]f32{ 0.01, 0.01, 0.033, 1.0 }}},
         { depthStencil = { depth = 1 }},
@@ -398,9 +396,10 @@ init_render_data :: proc(this: ^RenderContext) -> (render_data: RenderData) {
     cube := create_cube()
     
     this.unlit_effect = materials.create_shader_effect(this.device,
-                                                   .DEFAULT,
-                                                   "assets/shaders/shader.vert.spv",
-                                                   "assets/shaders/shader.frag.spv")
+                                                       .DEFAULT,
+                                                       { BINDINGS, ATTRIBUTES },
+                                                       "assets/shaders/shader.vert.spv",
+                                                       "assets/shaders/shader.frag.spv")
 
     this.unlit_pass = materials.create_shader_pass(this.device, this.render_pass, &this.unlit_effect)
     this.unlit_mat = materials.create(this.device, this.descriptor_pool, &this.unlit_pass)

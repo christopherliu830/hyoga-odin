@@ -1,5 +1,7 @@
 package graphics 
 
+import "core:log"
+
 import vk "vendor:vulkan"
 
 import "builders"
@@ -7,12 +9,17 @@ import "builders"
 device_create :: proc(gpu: vk.PhysicalDevice, q_idxs: [QueueFamily]int ) ->
 (device: vk.Device, queues: [QueueFamily]vk.Queue) {
 
-    n_exts := 1
-    extensions := [2]cstring { vk.KHR_SWAPCHAIN_EXTENSION_NAME, nil }
-    if device_find_portability(gpu) {
-        extensions[1] = "VK_KHR_portability_subset"
-        n_exts = 2
+    extensions := [?]cstring {
+        vk.KHR_SWAPCHAIN_EXTENSION_NAME,
+        "VK_KHR_portability_subset",
     }
+
+    n_exts := len(extensions)
+    if !device_find_portability(gpu) {
+        n_exts -= 1
+    }
+
+    log.infof("Enabling Extensions: %s", extensions[:n_exts])
 
     queue_infos := [len(QueueFamily)]vk.DeviceQueueCreateInfo {}
     queue_priorities := [len(QueueFamily)]f32 {}

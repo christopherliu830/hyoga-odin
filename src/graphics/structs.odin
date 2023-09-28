@@ -8,7 +8,6 @@ import vk "vendor:vulkan"
 import "pkgs:vma"
 
 import "materials"
-import "common"
 
 CameraData :: struct {
     view: la.Matrix4f32,
@@ -66,12 +65,12 @@ ShapeType :: enum {
 }
 
 Cube :: struct {
-    vertices:  [24]common.Vertex,
+    vertices:  [24]Vertex,
     indices:   [36]u16,
 }
 
 Tetrahedron :: struct {
-    vertices:  [12]common.Vertex,
+    vertices:  [12]Vertex,
     indices:   [12]u16,
 }
 

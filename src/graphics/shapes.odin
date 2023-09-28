@@ -5,8 +5,6 @@ import la "core:math/linalg"
 
 import vk "vendor:vulkan"
 
-import "common"
-
 create_tetrahedron :: proc() -> Tetrahedron {
 	v := [?]la.Vector3f32 {
 		{ 1,  1,  1},

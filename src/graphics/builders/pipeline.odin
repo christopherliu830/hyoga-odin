@@ -4,25 +4,30 @@ import "core:log"
 
 import vk "vendor:vulkan"
 
-import "../common"
-
 create_pipeline :: proc(device:           vk.Device,
                         layout:           vk.PipelineLayout,
-                        render_pass:      vk.RenderPass,
-                        shader_stages:    []vk.PipelineShaderStageCreateInfo,
+                        stages:           []vk.PipelineShaderStageCreateInfo = nil,
                         vertex_input:     ^vk.PipelineVertexInputStateCreateInfo = nil,
                         input_assembly:   ^vk.PipelineInputAssemblyStateCreateInfo = nil,
+                        viewport:         ^vk.PipelineViewportStateCreateInfo = nil,
+                        rasterization:    ^vk.PipelineRasterizationStateCreateInfo = nil,
+                        multisampling:    ^vk.PipelineMultisampleStateCreateInfo = nil,
+                        depth_stencil:    ^vk.PipelineDepthStencilStateCreateInfo = nil,
+                        color_blend:      ^vk.PipelineColorBlendStateCreateInfo = nil,
+                        dynamic_state:    ^vk.PipelineDynamicStateCreateInfo = nil,
+                        render_pass:      vk.RenderPass,
                         old:              vk.Pipeline = 0) ->
 (pipeline: vk.Pipeline) {
 
     vertex_input := vertex_input
-    vertex_input_default: vk.PipelineVertexInputStateCreateInfo
+    bindings := []vk.VertexInputBindingDescription {}
+    attributes := []vk.VertexInputAttributeDescription {}
+    vertex_input_default: vk.PipelineVertexInputStateCreateInfo 
     if vertex_input == nil {
-        bindings := common.BINDINGS
-        attributes := common.ATTRIBUTES
-        vertex_input_default = get_vertex_input(bindings[:], attributes[:])
+        vertex_input_default = get_vertex_input(bindings, attributes)
         vertex_input = &vertex_input_default
     }
+    
 
     input_assembly := input_assembly
     input_assembly_default: vk.PipelineInputAssemblyStateCreateInfo
@@ -31,32 +36,68 @@ create_pipeline :: proc(device:           vk.Device,
         input_assembly = &input_assembly_default
     }
 
-    view     := get_dummy_viewport_state()
+    viewport := viewport
+    viewport_default: vk.PipelineViewportStateCreateInfo
+    if viewport == nil {
+        viewport_default = get_viewport_state({}, {})
+        viewport = &viewport_default
+    }
 
-    raster   := get_rasterization()
+    rasterization := rasterization
+    rasterization_default: vk.PipelineRasterizationStateCreateInfo 
+    if rasterization == nil {
+        rasterization_default = get_rasterization()
+        rasterization = &rasterization_default
+    }
 
-    multi    := get_multisampling()
+    multisampling := multisampling
+    multisampling_default: vk.PipelineMultisampleStateCreateInfo 
+    if multisampling == nil {
+        multisampling_default = get_multisampling()
+        multisampling = &multisampling_default
+    }
 
-    depth    := get_depth_stencil(true, true, .LESS_OR_EQUAL)
+    depth_stencil := depth_stencil
+    depth_stencil_default: vk.PipelineDepthStencilStateCreateInfo
+    if depth_stencil == nil {
+        depth_stencil_default := get_depth_stencil(true, true, .LESS_OR_EQUAL)
+        depth_stencil = &depth_stencil_default
+    }
 
-    color_attachment := []vk.PipelineColorBlendAttachmentState { get_color_blending_attachment() }
-    color := get_color_blend(color_attachment)
+    color_blend := color_blend 
+    color_attachment: [1]vk.PipelineColorBlendAttachmentState
+    color_blend_default: vk.PipelineColorBlendStateCreateInfo
+    if color_blend == nil {
+        color_attachment = { get_color_blending_attachment() }
+        color_blend_default = get_color_blend(color_attachment[:])
+        color_blend = &color_blend_default
+    }
 
-    dynamic_states := []vk.DynamicState { .VIEWPORT, .SCISSOR }
-    dyna := get_dynamic_states(dynamic_states)
+    dynamic_state := dynamic_state
+    dynamic_states := []vk.DynamicState {
+        .VIEWPORT_WITH_COUNT,
+        .SCISSOR_WITH_COUNT,
+    }
+
+    dynamic_state_default: vk.PipelineDynamicStateCreateInfo
+    if dynamic_state == nil {
+        dynamic_state_default = get_dynamic_states(dynamic_states)
+        dynamic_state = &dynamic_state_default
+    }
 
     info := vk.GraphicsPipelineCreateInfo {
             sType               = .GRAPHICS_PIPELINE_CREATE_INFO,
-            stageCount          = u32(len(shader_stages)),
-            pStages             = raw_data(shader_stages),
+            stageCount          = u32(len(stages)),
+            pStages             = raw_data(stages),
             pVertexInputState   = vertex_input,
             pInputAssemblyState = input_assembly,
-            pViewportState      = &view,
-            pRasterizationState = &raster,
-            pMultisampleState   = &multi,
-            pDepthStencilState  = &depth,
-            pColorBlendState    = &color,
-            pDynamicState       = &dyna,
+            pTessellationState  = nil,
+            pViewportState      = viewport,
+            pRasterizationState = rasterization,
+            pMultisampleState   = multisampling,
+            pDepthStencilState  = depth_stencil,
+            pColorBlendState    = color_blend,
+            pDynamicState       = dynamic_state,
             layout              = layout,
             renderPass          = render_pass,
             subpass             = 0,
@@ -189,24 +230,14 @@ get_input_assembly :: proc() -> vk.PipelineInputAssemblyStateCreateInfo {
     }
 }
 
-get_dummy_viewport_state :: proc() -> vk.PipelineViewportStateCreateInfo {
-    viewport := vk.Viewport {
-        x        = 0,
-        y        = 0,
-        width    = 1,
-        height   = 1,
-        minDepth = 0,
-        maxDepth = 1,
-    }
-
-    scissor := vk.Rect2D { offset = {0, 0}, extent = { 1, 1 } }
-
+get_viewport_state :: proc(viewports: []vk.Viewport, scissors: []vk.Rect2D) ->
+vk.PipelineViewportStateCreateInfo {
     viewport_state := vk.PipelineViewportStateCreateInfo {
         sType         = .PIPELINE_VIEWPORT_STATE_CREATE_INFO,
-        viewportCount = 1,
-        pViewports    = &viewport,
-        scissorCount  = 1,
-        pScissors     = &scissor,
+        viewportCount = u32(len(viewports)),
+        pViewports    = raw_data(viewports),
+        scissorCount  = u32(len(scissors)),
+        pScissors     = raw_data(scissors),
     }
 
     return viewport_state
