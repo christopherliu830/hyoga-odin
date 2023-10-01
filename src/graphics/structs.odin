@@ -7,8 +7,6 @@ import "vendor:glfw"
 import vk "vendor:vulkan"
 import "pkgs:vma"
 
-import "materials"
-
 vec3 :: la.Vector3f32
 vec4 :: la.Vector4f32
 mat4 :: la.Matrix4f32
@@ -18,7 +16,6 @@ Perframe :: struct {
     in_flight_fence: vk.Fence,
     command_pool:    vk.CommandPool,
     command_buffer:  vk.CommandBuffer,
-    descriptor_pool: vk.DescriptorPool,
     image_available: ^SemaphoreLink,
     render_finished: vk.Semaphore,
 }
@@ -77,7 +74,7 @@ Tetrahedron :: struct {
 Result :: enum {
     OK,
     NEEDS_FLUSH,
-    STAGED,
+    NEEDS_STAGE,
 }
 
 BufferType :: enum {
@@ -91,9 +88,10 @@ BufferType :: enum {
 Buffer :: struct {
     handle:      vk.Buffer,
     allocation:  vma.Allocation,
+    type:        BufferType,
     size:        int,
+    alignment:   int,
     mapped_ptr:  rawptr,
-    name:        string,
 }
 
 Image :: struct {
@@ -109,7 +107,8 @@ Slice :: struct {
     size: u32
 }
 
-CreateFlags:: struct {
+BufferCreateFlags:: struct {
+    type:       BufferType,
     usage:      vk.BufferUsageFlags,
     vma:        vma.AllocationCreateFlags,
     required:   vk.MemoryPropertyFlags,

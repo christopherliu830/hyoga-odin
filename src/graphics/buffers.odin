@@ -13,41 +13,45 @@ import "builders"
 
 STAGING_BUFFER_SIZE :: 8*mem.Megabyte
 
-DefaultFlags :: [BufferType]CreateFlags {
+BufferDefaultFlags :: [BufferType]BufferCreateFlags {
     .INDEX = {
+        type = .INDEX,
         usage = { .INDEX_BUFFER, .TRANSFER_DST },
         vma = { .DEDICATED_MEMORY },
     },
     .VERTEX = {
+        type = .VERTEX,
         usage = { .VERTEX_BUFFER , .TRANSFER_DST },
         vma = { .DEDICATED_MEMORY },
     },
     .STAGING = {
+        type = .STAGING,
         usage = { .TRANSFER_SRC },
         vma = { .HOST_ACCESS_RANDOM , .MAPPED },
         required = { .HOST_VISIBLE },
         preferred = { .HOST_COHERENT },
     },
     .UNIFORM = {
+        type = .UNIFORM,
         usage = { .UNIFORM_BUFFER },
         vma = { .HOST_ACCESS_SEQUENTIAL_WRITE, .MAPPED },
-        required = { .HOST_VISIBLE , .HOST_COHERENT },
+        required = { .HOST_VISIBLE },
     },
     .UNIFORM_DYNAMIC = {
-        usage = { .UNIFORM_BUFFER },
+        type = .UNIFORM_DYNAMIC,
+        usage = { .UNIFORM_BUFFER, .TRANSFER_DST },
         vma = { .HOST_ACCESS_SEQUENTIAL_WRITE, .MAPPED },
-        required = { .HOST_VISIBLE , .HOST_COHERENT },
+        required = { .HOST_VISIBLE },
     },
 }
 
 
-@private
 vma_allocator: vma.Allocator
+min_dubo_alignment: int
 
-@private
-staging: StagingPlatform
-
-buffers_init :: proc(info: vma.AllocatorCreateInfo, transfer_queue: vk.Queue) {
+buffers_init :: proc(info: vma.AllocatorCreateInfo,
+                     transfer_queue: vk.Queue,
+                     gpu_properties: vk.PhysicalDeviceProperties) {
     info := info
 
     vulkan_functions := vma.create_vulkan_functions()
@@ -55,12 +59,11 @@ buffers_init :: proc(info: vma.AllocatorCreateInfo, transfer_queue: vk.Queue) {
 
     vk_assert(vma.CreateAllocator(&info, &vma_allocator))
 
-    buffers_init_staging(info.device, transfer_queue) 
+    min_dubo_alignment = int(gpu_properties.limits.minUniformBufferOffsetAlignment)
     log.info("graphics::buffers Init")
 }
 
 buffers_shutdown :: proc() {
-    buffers_shutdown_staging()
     vma.DestroyAllocator(vma_allocator)
     log.info("graphics::buffers Shutdown")
 }
@@ -68,11 +71,17 @@ buffers_shutdown :: proc() {
 /**
 * Create a buffer.
 */
-buffers_create :: proc(size:   int,
-                       flags:  CreateFlags) ->
+buffers_create :: proc(size: int, type: BufferType) -> Buffer {
+    return buffers_create_by_flags(size, buffers_default_flags(type), mem.DEFAULT_ALIGNMENT)
+}
 
+buffers_create_by_flags :: proc(size:      int,
+                                flags:     BufferCreateFlags,
+                                alignment: int) ->
 (buffer: Buffer) {
     assert(flags.usage != nil)
+    fmt.assertf(!(flags.type == .UNIFORM_DYNAMIC && alignment != min_dubo_alignment),
+                "Please create dynamic uniform buffers with buffers_create_dubo")
 
     buffer_info: vk.BufferCreateInfo = {
         sType       = .BUFFER_CREATE_INFO,
@@ -90,16 +99,18 @@ buffers_create :: proc(size:   int,
 
     allocation_info: vma.AllocationInfo
 
-    vk_assert(vma.CreateBuffer(vma_allocator,
-                     &buffer_info, 
-                     &alloc_info, 
-                     &buffer.handle, 
-                     &buffer.allocation, 
-                     &allocation_info))
+    vk_assert(vma.CreateBufferWithAlignment(vma_allocator,
+                                            &buffer_info, 
+                                            &alloc_info,
+                                            vk.DeviceSize(alignment),
+                                            &buffer.handle, 
+                                            &buffer.allocation, 
+                                            &allocation_info))
 
-    buffer.size = size
+    buffer.size = int(allocation_info.size)
+    buffer.alignment = alignment
     buffer.mapped_ptr = allocation_info.pMappedData
-    log.infof("Buffer %x Created", buffer.handle)
+    buffer.type = flags.type
 
     return buffer
 }
@@ -151,6 +162,18 @@ buffers_create_image :: proc(device: vk.Device, extent: vk.Extent3D) ->
     return image
 }
 
+buffers_create_dubo :: proc($T: typeid,
+                            count: int) ->
+(buffer: Buffer) {
+    alignment := min_dubo_alignment
+    elem_size := mem.align_formula(size_of(T), alignment)
+    size := elem_size * count
+    buffer.type = .UNIFORM_DYNAMIC
+    buffer = buffers_create_by_flags(size, BufferDefaultFlags[.UNIFORM_DYNAMIC], alignment)
+    return buffer
+}
+
+
 buffers_destroy :: proc { buffers_destroy_image, buffers_destroy_buffer }
 
 buffers_destroy_image :: proc(device: vk.Device, image: Image) {
@@ -159,34 +182,11 @@ buffers_destroy_image :: proc(device: vk.Device, image: Image) {
 }
 
 buffers_destroy_buffer :: proc(buffer: Buffer) {
-    log.infof("Buffer %x destroyed", buffer.handle, buffer.name)
     vma.DestroyBuffer(vma_allocator, buffer.handle, buffer.allocation)
 }
 
-buffers_default_flags :: proc(type: BufferType) -> 
-(flags: CreateFlags) {
-    switch(type) {
-        case .INDEX:
-            flags.usage = { .INDEX_BUFFER, .TRANSFER_DST }
-            flags.vma = { .DEDICATED_MEMORY }
-        case .VERTEX:
-            flags.usage = { .VERTEX_BUFFER , .TRANSFER_DST }
-            flags.vma = { .DEDICATED_MEMORY }
-        case .STAGING:
-            flags.usage = { .TRANSFER_SRC }
-            flags.vma = { .HOST_ACCESS_RANDOM , .MAPPED }
-            flags.required = { .HOST_VISIBLE }
-            flags.preferred = { .HOST_COHERENT }
-        case .UNIFORM:
-        case .UNIFORM_DYNAMIC:
-            flags.usage = { .UNIFORM_BUFFER }
-            flags.vma = { .HOST_ACCESS_SEQUENTIAL_WRITE, .MAPPED }
-            flags.required = { .HOST_VISIBLE }
-    }
-    return flags
-}
-
-buffers_init_staging :: proc(device: vk.Device, queue: vk.Queue) {
+buffers_create_staging :: proc(device: vk.Device, queue: vk.Queue) -> 
+(staging: StagingPlatform) {
     result: vk.Result
 
     staging.device = device
@@ -195,7 +195,7 @@ buffers_init_staging :: proc(device: vk.Device, queue: vk.Queue) {
     staging.fence = builders.create_fence(device)
     staging.command_pool = builders.create_command_pool(device, { .TRANSIENT })
     staging.command_buffer = builders.create_command_buffer(device, staging.command_pool)
-    staging.buffer = buffers_create(STAGING_BUFFER_SIZE, buffers_default_flags(.STAGING))
+    staging.buffer = buffers_create(STAGING_BUFFER_SIZE, BufferType.STAGING)
 
     begin_info := vk.CommandBufferBeginInfo {
         sType = .COMMAND_BUFFER_BEGIN_INFO,
@@ -203,29 +203,30 @@ buffers_init_staging :: proc(device: vk.Device, queue: vk.Queue) {
     }
 
     vk_assert(vk.BeginCommandBuffer(staging.command_buffer, &begin_info))
+
+    return staging
 }
 
-buffers_shutdown_staging :: proc() {
+buffers_destroy_staging :: proc(staging: StagingPlatform) {
     vk.DestroyFence(staging.device, staging.fence, nil)
     vk.DestroyCommandPool(staging.device, staging.command_pool, nil)
     buffers_destroy(staging.buffer)
 }
 
 // Move device-local memory to the GPU.
-buffers_write :: proc(buffer: Buffer,
-              data:   rawptr,
-              size_:  int = 0,
-              offset: uintptr = 0) ->
+buffers_write :: proc { buffers_write_by_offset, buffers_write_by_index }
+
+buffers_write_by_offset :: proc(buffer: Buffer,
+                                data:   rawptr,
+                                size_:  int = 0,
+                                offset: uintptr = 0) ->
 (Result) {
     size := size_ != 0 ? int(size_) : int(buffer.size) - int(offset)
 
     flags: vk.MemoryPropertyFlags
     vma.GetAllocationMemoryProperties(vma_allocator, buffer.allocation, &flags)
 
-    coherent: bool = .HOST_COHERENT in flags
-
     if .HOST_COHERENT in flags {
-        // Odin disallows pointer arithmetic
         dst := transmute(rawptr)(uintptr(buffer.mapped_ptr) + uintptr(offset))
         mem.copy(dst, data, size)
         return .OK
@@ -238,84 +239,109 @@ buffers_write :: proc(buffer: Buffer,
         mem.copy(dst, data, size)
         return .NEEDS_FLUSH
     }
-    else {
-        ctx := buffers_stage(data, size);
-        region := vk.BufferCopy { vk.DeviceSize(ctx.offset), vk.DeviceSize(offset), vk.DeviceSize(size) }
-        vk.CmdCopyBuffer(staging.command_buffer, staging.buffer.handle, buffer.handle, 1, &region)
-        return .STAGED
+
+    return .NEEDS_STAGE
+}
+
+buffers_write_by_index :: proc(buffer:  Buffer,
+                               data:    rawptr,
+                               $T:      typeid,
+                               index:   int,
+                               size:    int = 0,
+                               offset:  uintptr = 0) -> Result {
+    element_size := size_of(T)
+
+    if buffer.type == .UNIFORM_DYNAMIC {
+        element_size = mem.align_formula(element_size, min_dubo_alignment)
     }
+
+    offset := uintptr(element_size * index) + offset
+    write_size := size != 0 ? size : element_size
+
+    return buffers_write_by_offset(buffer, data, write_size, offset)
 }
             
-buffers_stage :: proc(data:       rawptr,
+buffers_stage :: proc(stage:      ^StagingPlatform,
+                      data:       rawptr,
                       size:       int,
                       alignment:  int = mem.DEFAULT_ALIGNMENT) -> UploadContext {
-    max_size := staging.buffer.size
+    
+    max_size := stage.buffer.size
     assert(size < max_size)
 
-    if staging.offset + uintptr(size) > uintptr(max_size) do buffers_flush_stage()
+    if stage.offset + uintptr(size) > uintptr(max_size) do buffers_flush_stage(stage)
 
-    result := buffers_wait_stage_submission()
+    result := buffers_wait_stage_submission(stage)
     fmt.assertf(result == .SUCCESS, "stage failed with error %v", result)
 
-    staging.offset = uintptr(mem.align_forward(rawptr(staging.offset), uintptr(alignment)))
+    stage.offset = uintptr(mem.align_forward(rawptr(stage.offset), uintptr(alignment)))
 
-    buffers_write(staging.buffer, data, size, staging.offset)
+    buffers_write(stage.buffer, data, size, stage.offset)
 
     ctx: UploadContext
 
-    ctx.buffer = staging.buffer
-    ctx.command_buffer = staging.command_buffer
-    ctx.offset = staging.offset
+    ctx.buffer = stage.buffer
+    ctx.command_buffer = stage.command_buffer
+    ctx.offset = stage.offset
 
-    staging.offset += uintptr(size)
+    stage.offset += uintptr(size)
 
     return ctx
 }
 
-buffers_flush_stage :: proc() {
-    if staging.submission_in_flight || staging.offset == 0 do return
-    log.info("Flushing stage buffer...")
+buffers_flush_stage :: proc(stage: ^StagingPlatform) {
+    if stage.submission_in_flight || stage.offset == 0 do return
 
-    staging.submission_in_flight = true
+    stage.submission_in_flight = true
 
     flags: vk.MemoryPropertyFlags
-    vma.GetAllocationMemoryProperties(vma_allocator, staging.buffer.allocation, &flags)
+    vma.GetAllocationMemoryProperties(vma_allocator, stage.buffer.allocation, &flags)
 
     if .HOST_COHERENT not_in flags do vma.FlushAllocation(vma_allocator, 
-                                                         staging.buffer.allocation, 
-                                                         0, 
-                                                         vk.DeviceSize(staging.buffer.size))
+                                                          stage.buffer.allocation, 
+                                                          0, 
+                                                          vk.DeviceSize(stage.buffer.size))
 
-    result := vk.EndCommandBuffer(staging.command_buffer)
+    result := vk.EndCommandBuffer(stage.command_buffer)
     fmt.assertf(result == .SUCCESS, "Assert failed with error %v", result)
 
     info: vk.SubmitInfo = {
         sType = .SUBMIT_INFO,
         commandBufferCount = 1,
-        pCommandBuffers = &staging.command_buffer,
+        pCommandBuffers = &stage.command_buffer,
     }
 
-    result = vk.QueueSubmit(staging.queue, 1, &info, staging.fence)
+    result = vk.QueueSubmit(stage.queue, 1, &info, stage.fence)
     fmt.assertf(result == .SUCCESS, "Assert failed with error %v", result)
 }
 
-buffers_wait_stage_submission :: proc() -> vk.Result {
-    if !staging.submission_in_flight do return .SUCCESS
+buffers_wait_stage_submission :: proc(stage: ^StagingPlatform) -> vk.Result {
+    if !stage.submission_in_flight do return .SUCCESS
 
-    vk.WaitForFences(staging.device, 1, &staging.fence, true, max(u64)) or_return
-    vk.ResetFences(staging.device, 1, &staging.fence) or_return
-    staging.offset = 0
-    staging.submission_in_flight = false
-    vk.ResetCommandPool(staging.device, staging.command_pool, nil) or_return
+    vk.WaitForFences(stage.device, 1, &stage.fence, true, max(u64)) or_return
+    vk.ResetFences(stage.device, 1, &stage.fence) or_return
+    stage.offset = 0
+    stage.submission_in_flight = false
+    vk.ResetCommandPool(stage.device, stage.command_pool, nil) or_return
     info: vk.CommandBufferBeginInfo = { sType = .COMMAND_BUFFER_BEGIN_INFO }
-    vk.BeginCommandBuffer(staging.command_buffer, &info) or_return
+    vk.BeginCommandBuffer(stage.command_buffer, &info) or_return
     return .SUCCESS
 }
 
-buffers_to_mtptr :: proc(buffer: Buffer, $T: typeid) -> []T {
-    assert(buffer.mapped_ptr != nil)
+buffers_copy :: proc(up:    UploadContext,
+                     size:  int,
+                     dst:   Buffer) {
+    copy_op := vk.BufferCopy {
+        srcOffset = vk.DeviceSize(up.offset),
+        dstOffset = 0,
+        size = vk.DeviceSize(size),
+    }
 
-    mtp := transmute([^]T)buffer.mapped_ptr
-    return mtp[0:buffer.size/size_of(T)]
+    vk.CmdCopyBuffer(up.command_buffer, up.buffer.handle, dst.handle, 1, &copy_op)
 }
 
+
+buffers_default_flags :: proc(type: BufferType) -> BufferCreateFlags {
+    flags := BufferDefaultFlags
+    return flags[type]
+}

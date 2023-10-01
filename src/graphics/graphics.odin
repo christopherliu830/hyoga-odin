@@ -4,6 +4,8 @@ import "core:fmt"
 import "core:log"
 import "core:runtime"
 import "core:c"
+import "core:math"
+import "core:mem"
 import "core:container/intrusive/list"
 import la "core:math/linalg"
 
@@ -11,41 +13,39 @@ import "vendor:glfw"
 import vk "vendor:vulkan"
 import "pkgs:vma"
 
-import "materials"
 import "builders"
 
 RenderContext :: struct {
-    instance:            vk.Instance,
-    window:              glfw.WindowHandle,
-    gpu:                 vk.PhysicalDevice,
-    gpu_properties:      vk.PhysicalDeviceProperties,
-    queues:              [QueueFamily]vk.Queue,
-    queue_indices:       [QueueFamily]int,
-    device:              vk.Device,
-    surface:             vk.SurfaceKHR,
-    swapchain:           Swapchain,
-    render_pass:         vk.RenderPass,
-    descriptor_pool:     vk.DescriptorPool,
-    perframes:           []Perframe,
-    semaphore_pool:      []SemaphoreLink,
-    semaphore_list:      list.List,
-    framebuffers:        []vk.Framebuffer,
-    depth_image:         Image,
+    instance:             vk.Instance,
+    window:               glfw.WindowHandle,
+    gpu:                  vk.PhysicalDevice,
+    gpu_properties:       vk.PhysicalDeviceProperties,
+    queues:               [QueueFamily]vk.Queue,
+    queue_indices:        [QueueFamily]int,
+    device:               vk.Device,
+    surface:              vk.SurfaceKHR,
+    swapchain:            Swapchain,
+    render_pass:          vk.RenderPass,
+    descriptor_pool:      vk.DescriptorPool,
+    stage:                StagingPlatform,
+    perframes:            []Perframe,
+    semaphore_pool:       []SemaphoreLink,
+    semaphore_list:       list.List,
+    framebuffers:         []vk.Framebuffer,
+    depth_image:          Image,
 
-    scene:               Scene,
-    camera_data:         CameraData,
+    scene:                Scene,
+    camera_data:          CameraData,
 
-    unlit_effect:        materials.ShaderEffect,
-    unlit_pass:          materials.ShaderPass,
-    unlit_mat:           materials.Material,
+    mat_cache:            MaterialCache,
 
-    window_needs_resize: bool,
+    window_needs_resize:  bool,
 }
 
 WINDOW_HEIGHT :: 720
 WINDOW_WIDTH :: 1280
 WINDOW_TITLE :: "Hyoga"
-OBJECT_COUNT :: 1
+OBJECT_COUNT :: 12
 
 @private
 g_time : f32 = 0
@@ -129,7 +129,7 @@ draw :: proc(this: ^RenderContext, index: u32) -> vk.Result {
     vk.BeginCommandBuffer(cmd, &begin_info) or_return
 
     clear_values := []vk.ClearValue {
-        { color = { float32 = [4]f32{ 0.01, 0.01, 0.033, 1.0 }}},
+        { color = { float32 = [4]f32{ 0.01, 0.01, 0.01, 1.0 }}},
         { depthStencil = { depth = 1 }},
     }
 
@@ -154,7 +154,7 @@ draw :: proc(this: ^RenderContext, index: u32) -> vk.Result {
     scissor: vk.Rect2D = { extent = this.swapchain.extent }
     vk.CmdSetScissor(cmd, 0, 1, &scissor)
 
-    scene_render(&this.scene, cmd, int(index))
+    scene_render(&this.scene, &this.perframes[index])
     
     vk.CmdEndRenderPass(cmd)
 
@@ -265,11 +265,14 @@ init :: proc(this: ^RenderContext) {
         instance = this.instance,
         device = this.device,
         vulkanApiVersion = vk.API_VERSION_1_3,
-    }, this.queues[.TRANSFER])
+    },  this.queues[.TRANSFER], 
+        this.gpu_properties)
 
-    scene_init(&this.scene, scene_create_camera(this.swapchain))
+    this.stage = buffers_create_staging(this.device, this.queues[.TRANSFER])
 
-    init_render_data(this)
+    mats_init(&this.mat_cache)
+
+    scene_init(&this.scene, this)
     
     extent := vk.Extent3D {
         this.swapchain.extent.width, 
@@ -332,60 +335,14 @@ create_sync_objects :: proc(device: vk.Device, count: int) ->
     return semaphores, sem_list
 }
 
-init_render_data :: proc(this: ^RenderContext) {
-    this.scene.object_ubo = buffers_create(size_of(mat4) * OBJECT_COUNT, 
-                                            buffers_default_flags(.UNIFORM_DYNAMIC))
-
-    cube := create_cube()
-    
-    this.unlit_effect = materials.create_shader_effect(this.device,
-                                                       .DEFAULT,
-                                                       { BINDINGS, ATTRIBUTES },
-                                                       "assets/shaders/shader.vert.spv",
-                                                       "assets/shaders/shader.frag.spv")
-
-    this.unlit_pass = materials.create_shader_pass(this.device, this.render_pass, &this.unlit_effect)
-    this.unlit_mat = materials.create(this.device, this.descriptor_pool, &this.unlit_pass)
-
-    builders.bind_descriptor_set(this.device,
-                                 { this.scene.cam_data.buffer.handle, 0, size_of(Camera) },
-                                 .UNIFORM_BUFFER_DYNAMIC, 
-                                 this.unlit_mat.descriptors[0])
-
-    builders.bind_descriptor_set(this.device,
-                                 { this.scene.object_ubo.handle, 0, size_of(mat4) },
-                                 .UNIFORM_BUFFER_DYNAMIC, 
-                                 this.unlit_mat.descriptors[3])
-
-    this.scene.model[0] = la.matrix4_translate_f32(vec3 {1, 0, 0})
-    this.scene.materials[0] = &this.unlit_mat
-
-    this.scene.vertex_buffers[0] = buffers_create(size_of(cube.vertices), buffers_default_flags(.VERTEX))
-    buffers_write(this.scene.vertex_buffers[0], &cube.vertices)
-
-    this.scene.index_buffers[0] = buffers_create(size_of(cube.indices), buffers_default_flags(.INDEX))
-    buffers_write(this.scene.index_buffers[0], &cube.indices)
-    
-    buffers_flush_stage()
-}
-
-cleanup_render_data :: proc(this: ^RenderContext) {
-    materials.destroy(this.device, this.unlit_pass)
-    materials.destroy(this.device, this.unlit_effect)
-
-    r := this.scene
-    buffers_destroy(r.camera_ubo)
-    buffers_destroy(r.object_ubo)
-    for i in 0..<OBJECT_COUNT {
-        buffers_destroy(r.vertex_buffers[i])
-        buffers_destroy(r.index_buffers[i])
-    }
-}
-
 cleanup :: proc(this: ^RenderContext) {
     vk.DeviceWaitIdle(this.device)
 
-    cleanup_render_data(this)
+    scene_shutdown(&this.scene)
+
+    mats_shutdown(&this.mat_cache, this.device)
+
+    buffers_destroy_staging(this.stage)
 
     vk.DestroyDescriptorPool(this.device, this.descriptor_pool, nil)
 

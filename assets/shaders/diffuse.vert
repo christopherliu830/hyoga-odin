@@ -1,27 +1,36 @@
 #version 450
 
-layout(binding = 0) uniform CameraBuffer {
+layout(set = 0, binding = 0) uniform CameraBuffer {
 	mat4 view;
 	mat4 proj;
-} camera;
+} _camera;
 
-layout(set = 2, binding = 0) uniform MaterialBuffer {
+layout(set = 0, binding = 1) uniform Lights {
+	vec4 direction;
 	vec4 color;
-} material;
+} _light;
 
 layout(set = 3, binding = 0) uniform ObjectBuffer {
 	mat4 model;
-} object;
+} _object;
 
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 normal;
 layout(location = 2) in vec4 color;
 layout(location = 3) in vec3 uv;
 
-layout(location = 0) out vec3 fragColor;
+layout(location = 0) out vec3 fragNormal;
+layout(location = 1) out vec3 fragLightDir;
 
 void main() {
-    gl_Position = camera.proj * camera.view * object.model * vec4(position, 1.0);
-    fragColor = material.color.xyz;
+		mat4 m = _object.model;
+		mat4 mv = _camera.view * _object.model;
+		mat4 mvp = _camera.proj * mv;
+
+    gl_Position = mvp * vec4(position, 1.0);
+
+		// eye space normal
+		fragNormal = mat3(_camera.view * transpose(inverse(_object.model))) * normal;
+		fragLightDir = mat3(_camera.view) * _light.direction.xyz;
 }
 

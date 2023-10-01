@@ -22,12 +22,14 @@ allocate_descriptor_set :: proc(device: vk.Device,
 bind_descriptor_set :: proc (device: vk.Device,
                              info: vk.DescriptorBufferInfo, 
                              type: vk.DescriptorType, 
-                             set: vk.DescriptorSet) {
+                             set: vk.DescriptorSet,
+                             binding: int) {
     info := info
 
     write := vk.WriteDescriptorSet {
         sType = .WRITE_DESCRIPTOR_SET,
         dstSet = set,
+        dstBinding = u32(binding),
         descriptorCount = 1,
         descriptorType = type,
         pBufferInfo = &info,
