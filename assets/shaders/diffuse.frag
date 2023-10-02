@@ -18,7 +18,8 @@ void main() {
 		vec3 normal = normalize(fragNormal);
 		vec3 lightDir = normalize(-fragLightDir);
 
-		vec3 ambient = vec3(0.1, 0.1, 0.1) * _material.color.xyz;
+		float ambient_const = 0.05;
+		vec3 ambient = vec3(ambient_const, ambient_const, ambient_const) * _material.color.xyz;
 
 		float diff = clamp(dot(normal, lightDir), 0.0, 1.0);
 		vec3 diffuse = _material.color.xyz * _light.color.xyz * diff;
