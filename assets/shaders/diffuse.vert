@@ -23,14 +23,12 @@ layout(location = 0) out vec3 fragNormal;
 layout(location = 1) out vec3 fragLightDir;
 
 void main() {
-		mat4 m = _object.model;
-		mat4 mv = _camera.view * _object.model;
-		mat4 mvp = _camera.proj * mv;
+	mat4 mv = _camera.view * _object.model;
 
-    gl_Position = mvp * vec4(position, 1.0);
+    gl_Position = _camera.proj * mv  * vec4(position, 1.0);
 
-		// eye space normal
-		fragNormal = mat3(_camera.view * transpose(inverse(_object.model))) * normal;
-		fragLightDir = mat3(_camera.view) * _light.direction.xyz;
+	// Interpolated values
+	fragNormal = mat3(transpose(inverse(mv))) * normal;
+	fragLightDir = mat3(_camera.view) * _light.direction.xyz;
 }
 

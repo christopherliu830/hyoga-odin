@@ -20,10 +20,10 @@ void main() {
 
 		vec3 ambient = vec3(0.1, 0.1, 0.1) * _material.color.xyz;
 
-		float diff = clamp(dot(normal, lightDir), 0, 1);
+		float diff = clamp(dot(normal, lightDir), 0.0, 1.0);
 		vec3 diffuse = _material.color.xyz * _light.color.xyz * diff;
 
-		vec3 result = ambient + diffuse;
+		vec3 result = clamp(ambient + diffuse, 0.0, 1.0);
 
     outColor = vec4(result, 1.0);
 }
