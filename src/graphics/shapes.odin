@@ -81,15 +81,15 @@ create_cube :: proc() -> Cube {
     for i in 0..<8 {
 		index := i * 3;
 		cube.vertices[index].position     = vertices[i];
-		cube.vertices[index].normal       = la.Vector3f32{1, 0, 0} * vertices[i];
+		cube.vertices[index].normal       = vertices[i];
 		cube.vertices[index].color        = color;
 
 		cube.vertices[index + 1].position = vertices[i];
-		cube.vertices[index + 1].normal   = la.Vector3f32{0, 1, 0} * vertices[i];
+		cube.vertices[index + 1].normal   = vertices[i];
 		cube.vertices[index + 1].color    = color;
 
 		cube.vertices[index + 2].position = vertices[i];
-		cube.vertices[index + 2].normal   = la.Vector3f32{0, 0, 1} * vertices[i];
+		cube.vertices[index + 2].normal   = vertices[i];
 		cube.vertices[index + 2].color    = color;
     }
 
