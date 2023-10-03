@@ -79,44 +79,35 @@ create_cube :: proc() -> Cube {
     cube: Cube
 
     for i in 0..<8 {
-		index := i * 3;
-		cube.vertices[index].position     = vertices[i];
-		cube.vertices[index].normal       = vertices[i];
-		cube.vertices[index].color        = color;
-
-		cube.vertices[index + 1].position = vertices[i];
-		cube.vertices[index + 1].normal   = vertices[i];
-		cube.vertices[index + 1].color    = color;
-
-		cube.vertices[index + 2].position = vertices[i];
-		cube.vertices[index + 2].normal   = vertices[i];
-		cube.vertices[index + 2].color    = color;
+		cube.vertices[i].position     = vertices[i];
+		cube.vertices[i].normal       = vertices[i];
+		cube.vertices[i].color        = color;
     }
 
 	cube.indices = {
 		// TOP
-		7, 19, 10,
-		10, 19, 22,
+		3, 6, 2,
+		6, 3, 7,
 
 		// BOTTOM
-		4, 16, 1,
-		1, 16, 13,
+		0, 1, 4,
+		4, 1, 5,
 
 		// LEFT
-		3, 0, 9,
-		9, 0, 6,
+		0, 1, 2,
+		3, 2, 1,
 
 		// RIGHT
-		12, 15, 18,
-		18, 15, 21,
+		6, 5, 4,
+		5, 6, 7,
 
 		// FRONT
-		2, 14, 8,
-		8, 14, 20,
+		0, 2, 4,
+		4, 2, 6,
 
 		// BACK
-		17, 5, 23,
-		23, 5, 11,
+		5, 3, 1,
+		3, 5, 7,
 	};
 
     for _, i in cube.vertices do cube.vertices[i].position /= 2 
