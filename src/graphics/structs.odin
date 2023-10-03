@@ -62,7 +62,7 @@ ShapeType :: enum {
 }
 
 Cube :: struct {
-    vertices:  [24]Vertex,
+    vertices:  [8]Vertex,
     indices:   [36]u16,
 }
 
