@@ -125,6 +125,8 @@ scene_init :: proc(scene:  ^Scene,
     data = vec4 { 0.6, 0.2, 0.2, 1 }
     buffers_write(diffuse_red.uniforms, &data)
 
+    //TODO: Shadow Pass
+
     create_test_scene(scene, &ctx.mat_cache)
 }
 

@@ -22,6 +22,11 @@ ShaderFile :: struct {
     stage: vk.ShaderStageFlag
 }
 
+ShaderStage :: struct{
+        module:  vk.ShaderModule,
+        stage:   vk.ShaderStageFlag,
+}
+
 ShaderEffect :: struct {
     pipeline:         vk.Pipeline,
     pipeline_layout:  vk.PipelineLayout,

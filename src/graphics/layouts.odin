@@ -8,6 +8,7 @@ import "builders"
 LayoutType:: enum {
     DEFAULT,
     DIFFUSE,
+	SHADOW,
 }
 
 DescriptorNumber :: enum {
@@ -67,6 +68,10 @@ ShaderLayouts :: [LayoutType][len(DescriptorNumber)][]ShaderResource {
         2 = { RESOURCE_COLOR },
         3 = { RESOURCE_OBJECT },
     },
+	.SHADOW = {
+		0 = { RESOURCE_CAMERA },
+		3 = { RESOURCE_OBJECT },
+	},
 }
 
 layout_create_descriptor_layout :: proc(device: vk.Device, type: LayoutType) ->
@@ -96,7 +101,5 @@ layout_create_descriptor_layout :: proc(device: vk.Device, type: LayoutType) ->
     for i in 0..<len(DescriptorNumber) do if (layouts[i] == 0) {
         layouts[i] = builders.create_descriptor_set_layout(device, {})
     }
-
     return layouts
 }
-
