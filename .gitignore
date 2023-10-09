@@ -15,3 +15,4 @@ frames/
 /build
 assets/shaders/diffuse.frag.spv
 assets/shaders/diffuse.vert.spv
+assets/shaders/shadow_pass.vert.spv

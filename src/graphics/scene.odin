@@ -29,6 +29,15 @@ LightData :: struct {
     buffer: Buffer,
 }
 
+Shadow :: struct{
+	transform_mat: mat4,
+}
+
+ShadowData :: struct {
+	data: [dynamic]Shadow,
+	buffer: Buffer,
+}
+
 Scene :: struct {
     time:            f32,
     device:          vk.Device,
@@ -38,6 +47,7 @@ Scene :: struct {
     // Both frames are set as dynamic offsets within the buffer.
     cam_data:        CameraData,
     light_data:      LightData,
+	shadow_data:	 ShadowData,
     cube_vertex:     Buffer,
     cube_index:      Buffer,
 
@@ -154,6 +164,12 @@ scene_init :: proc(scene:  ^Scene,
     data = vec4 { 0, 0, 1, 1 }
     buffers_write(dd_green.uniforms, &data)
 
+	// Shadow efect
+	shadow_effect := mats_create_shadow_pass(ctx.device, &ctx.mat_cache)
+	shadow := mats_create(&ctx.mat_cache, "default_shadow", ctx.device, ctx.descriptor_pool, shadow_effect)
+	// Do not do bind descriptors bc no material uniforms needed?
+	// TODO: scene_setup_lights/struct LightData to have transform matrix
+
     create_test_scene(scene, &ctx.mat_cache)
 }
 
@@ -203,6 +219,20 @@ scene_setup_lights :: proc(frame_count: int) -> (lights: LightData) {
     for i in 0..<frame_count { buffers_write(lights.buffer, &light, Light, i) }
 
     return lights
+}
+
+scene_setup_shadow_maps :: proc(lights: []Light, frame_count: int) -> (shadows: ShadowData){
+	shadows.buffer = buffers_create_dubo(Shadow, frame_count) // should be light_count * frame_count?
+	reserve(&shadows.data, len(lights))
+	for light in lights {
+		shadow := Shadow {
+			la.matrix4_translate_f32(vec3(-light.direction.xyz)),
+		}
+		append(&shadows.data, shadow)
+	}
+	// Duplicate for frames
+
+	return
 }
 
 scene_render :: proc(scene: ^Scene,
