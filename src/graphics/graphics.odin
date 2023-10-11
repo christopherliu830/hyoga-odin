@@ -127,6 +127,8 @@ draw :: proc(this: ^RenderContext, index: u32) -> vk.Result {
 
     vk.BeginCommandBuffer(cmd, &begin_info) or_return
 
+	scene_draw_shadows(&this.scene, cmd, this.swapchain.extent, cast(int)index, OBJECT_COUNT)
+	
     clear_values := []vk.ClearValue {
         { color = { float32 = [4]f32{ 0.01, 0.01, 0.01, 1.0 }}},
         { depthStencil = { depth = 1 }},
@@ -156,7 +158,7 @@ draw :: proc(this: ^RenderContext, index: u32) -> vk.Result {
     scene_render(&this.scene, &this.perframes[index])
     
     vk.CmdEndRenderPass(cmd)
-
+	
     vk.EndCommandBuffer(cmd) or_return
 
     wait_stage: vk.PipelineStageFlags = { .COLOR_ATTACHMENT_OUTPUT }

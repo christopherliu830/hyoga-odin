@@ -5,6 +5,7 @@ import "core:log"
 import "core:os"
 import "core:mem"
 
+import la"core:math/linalg"
 import vk "vendor:vulkan"
 
 import "builders"
