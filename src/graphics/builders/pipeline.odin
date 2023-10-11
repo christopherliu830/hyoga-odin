@@ -131,55 +131,7 @@ create_pipeline_layout :: proc(device: vk.Device, layouts: []vk.DescriptorSetLay
 	return layout
 }
 
-create_shadow_pass :: proc(device: vk.Device) ->
-(render_pass: vk.RenderPass) {
-	depth_attachment := vk.AttachmentDescription {
-		flags          = {},
-		format         = .D32_SFLOAT,
-		samples        = { ._1 },
-		loadOp         = .CLEAR,
-		storeOp        = .STORE,
-		stencilLoadOp  = .CLEAR,
-		stencilStoreOp = .DONT_CARE,
-		initialLayout  = .UNDEFINED,
-		finalLayout    = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-	}
-	
-	depth_attachment_ref := vk.AttachmentReference  {
-		attachment = 0,
-		layout = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-	}
 
-	subpass := vk.SubpassDescription {
-		pipelineBindPoint       = .GRAPHICS,
-		colorAttachmentCount 	= 0,
-		pDepthStencilAttachment = &depth_attachment_ref,
-	}
-
-	depth_dependency := vk.SubpassDependency {
-		srcSubpass    = vk.SUBPASS_EXTERNAL,
-		dstSubpass    = .0,
-		srcStageMask  = { .EARLY_FRAGMENT_TESTS, .LATE_FRAGMENT_TESTS },
-		srcAccessMask = {},
-		dstStageMask  = { .EARLY_FRAGMENT_TESTS, .LATE_FRAGMENT_TESTS },
-		dstAccessMask = { .DEPTH_STENCIL_ATTACHMENT_WRITE },
-	}
-
-	render_pass_create_info: vk.RenderPassCreateInfo = {
-		sType           = .RENDER_PASS_CREATE_INFO,
-		attachmentCount = 1,
-		pAttachments    = &depth_attachment,
-		subpassCount    = 1,
-		pSubpasses      = &subpass,
-		dependencyCount = 1,
-		pDependencies   = &depth_dependency,
-	}
-
-	result := vk.CreateRenderPass(device, &render_pass_create_info, nil, &render_pass)
-	assert(result == .SUCCESS)
-
-	return render_pass
-}
 
 create_render_pass :: proc(device: vk.Device, format: vk.Format) ->
 (render_pass: vk.RenderPass) {

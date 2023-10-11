@@ -5,6 +5,7 @@ import "core:log"
 import "core:os"
 import "core:mem"
 
+import la"core:math/linalg"
 import vk "vendor:vulkan"
 
 import "builders"
@@ -129,7 +130,7 @@ mats_create_shader_effect :: proc(cache:            ^MaterialCache,
     return &cache.effects[name]
 }
 
-mats_create_shadow_pass :: proc(device: vk.Device, cache: ^MaterialCache) -> (^ShaderEffect){
+mats_create_shadow_effect :: proc(device: vk.Device, cache: ^MaterialCache, render_pass: vk.RenderPass) -> (^ShaderEffect){
 	vert := builders.create_shader_module(device, read_spirv("assets/shaders/shadow_pass.vert.spv"));
 
 	effect: ShaderEffect
@@ -148,7 +149,7 @@ mats_create_shadow_pass :: proc(device: vk.Device, cache: ^MaterialCache) -> (^S
 
 	effect.pipeline_layout = builders.create_pipeline_layout(device, effect.desc_layouts[:]);
 	
-	bindings := []vk.VertexInputBindingDescription	{ vk.VertexInputBindingDescription {0, size_of(f32), .VERTEX} }
+	bindings := []vk.VertexInputBindingDescription	{ vk.VertexInputBindingDescription {0, size_of(la.Vector3f32), .VERTEX} }
 	attributes := []vk.VertexInputAttributeDescription { vk.VertexInputAttributeDescription {0, 0, .R32G32B32_SFLOAT, 0} }
 
 	shader_stages := []vk.PipelineShaderStageCreateInfo {
@@ -161,26 +162,30 @@ mats_create_shadow_pass :: proc(device: vk.Device, cache: ^MaterialCache) -> (^S
 	}
 
 	vertex_input := builders.get_vertex_input(bindings, attributes)	
-	color_blend := builders.get_color_blend(nil)
-	color_blend.attachmentCount = 0
+	input_assembly := builders.get_input_assembly()
+	color_blend := vk.PipelineColorBlendStateCreateInfo{
+		sType           = .PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+		logicOpEnable   = false,
+		logicOp         = .COPY,
+		attachmentCount = 0,
+	}
 	
 	//pipeline stuff
-	render_pass := builders.create_shadow_pass(device)
-
+	
     effect.pipeline = builders.create_pipeline(device,
                                                layout = effect.pipeline_layout,
                                                render_pass = render_pass,
                                                vertex_input = &vertex_input,
 											   color_blend = &color_blend,
                                                stages = shader_stages)
-	/*
+	
+		/*
 	info := vk.GraphicsPipelineCreateInfo {
 			sType               = .GRAPHICS_PIPELINE_CREATE_INFO,
-			stageCount          = u32(len(shader_stages)),
+			stageCount          = 1,
 			pStages             = raw_data(shader_stages),
 			pVertexInputState   = &vertex_input,
 			pInputAssemblyState = &input_assembly,
-			pDepthStencilState  = &depth_stencil,
 			layout              = effect.pipeline_layout,
 			renderPass          = render_pass,
 			subpass             = 0,
@@ -189,10 +194,8 @@ mats_create_shadow_pass :: proc(device: vk.Device, cache: ^MaterialCache) -> (^S
 	}
 
 	result := vk.CreateGraphicsPipelines(device, 0, 1, &info, nil, &effect.pipeline)
-	fmt.println(result)
-	assert(result == .SUCCESS)	
+	assert(result == .SUCCESS)
 	*/
-
     cache.effects["shadow_pass"] = effect
 
     return &cache.effects["shadow_pass"]
