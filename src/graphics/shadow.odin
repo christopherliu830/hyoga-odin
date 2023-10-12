@@ -2,6 +2,7 @@ package graphics
 
 import la "core:math/linalg"
 import vk "vendor:vulkan"
+import "pkgs:vma"
 
 import "builders"
 
@@ -19,8 +20,7 @@ ShadowContext :: struct{
 	buffer: Buffer,
 
 	// Rendering
-	images: []vk.Image,
-	image_views: []vk.ImageView,
+	images: []Image,
 	framebuffers: []vk.Framebuffer,
 	render_pass: vk.RenderPass,
 	
@@ -29,8 +29,8 @@ ShadowContext :: struct{
 	extent: vk.Extent2D,
 }
 
-shadow_create_image :: proc(device: vk.Device, extent: vk.Extent2D) -> (image: vk.Image) {
-	image_create_info := vk.ImageCreateInfo {
+shadow_create_image :: proc(device: vk.Device, extent: vk.Extent2D) -> (image: Image) {
+	image_info := vk.ImageCreateInfo {
 		sType = .IMAGE_CREATE_INFO,
 		imageType = .D2,
 		format = .D32_SFLOAT,
@@ -43,19 +43,48 @@ shadow_create_image :: proc(device: vk.Device, extent: vk.Extent2D) -> (image: v
 		arrayLayers = 1,
 		samples = { ._1 },
 		initialLayout = .UNDEFINED,
-		usage = { .DEPTH_STENCIL_ATTACHMENT | .SAMPLED },
+		usage = { .DEPTH_STENCIL_ATTACHMENT , .SAMPLED },
 		sharingMode = .EXCLUSIVE,
 	}
 
-	vk_assert(vk.CreateImage(device, &image_create_info, nil, &image))
+    alloc_info := vma.AllocationCreateInfo {
+        usage = .AUTO,
+        requiredFlags = { .DEVICE_LOCAL },
+    }
+    
+    allocation_info: vma.AllocationInfo
+
+    vk_assert(vma.CreateImage(vma_allocator,
+                    &image_info, 
+                    &alloc_info, 
+                    &image.handle, &image.allocation,
+                    &allocation_info))
+
+	image.size = int(allocation_info.size)
+    
+    image_view_info := vk.ImageViewCreateInfo {
+        sType = .IMAGE_VIEW_CREATE_INFO,
+        viewType = .D2,
+        image = image.handle,
+        format = .D32_SFLOAT,
+        subresourceRange = {
+            aspectMask = { .DEPTH },
+            baseMipLevel = 0, 
+            levelCount = 1,
+            baseArrayLayer =  0,
+            layerCount = 1,
+        },
+    }
+    
+    vk_assert(vk.CreateImageView(device, &image_view_info, nil, &image.view))
 
 	return
 }
 
-shadow_create_image_view :: proc(device: vk.Device, img: vk.Image) -> (image_view: vk.ImageView) {
+shadow_create_image_view :: proc(device: vk.Device, img: Image) -> (image_view: vk.ImageView) {
 	image_view_create_info : vk.ImageViewCreateInfo = {
 		sType = .IMAGE_VIEW_CREATE_INFO,
-		image = img,
+		image = img.handle,
 		viewType = .D2,
 		format = .D32_SFLOAT,
 		components = { r = .IDENTITY, g = .IDENTITY, b = .IDENTITY, a = .IDENTITY },
@@ -76,7 +105,7 @@ shadow_create_image_view :: proc(device: vk.Device, img: vk.Image) -> (image_vie
 shadow_create_framebuffer :: proc(device: vk.Device, 
 								render_pass: vk.RenderPass, 
 								image_view: ^vk.ImageView, 
-								extent: vk.Extent2D) -> 
+								extent: vk.Extent3D) -> 
 (framebuffer: vk.Framebuffer) {
 	framebuffer_create_info := vk.FramebufferCreateInfo{
 		sType = .FRAMEBUFFER_CREATE_INFO,
@@ -115,7 +144,7 @@ create_shadow_pass :: proc(device: vk.Device) ->
 
 	subpass := vk.SubpassDescription {
 		pipelineBindPoint       = .GRAPHICS,
-		flags 					= nil,
+		flags 					= {},
 		colorAttachmentCount 	= 0,
 		pColorAttachments 		= nil,
 		inputAttachmentCount	= 0,
@@ -137,6 +166,7 @@ create_shadow_pass :: proc(device: vk.Device) ->
 
 	render_pass_create_info: vk.RenderPassCreateInfo = {
 		sType           = .RENDER_PASS_CREATE_INFO,
+		flags 			= {},
 		attachmentCount = 1,
 		pAttachments    = &depth_attachment,
 		subpassCount    = 1,
@@ -159,11 +189,13 @@ shadow_init :: proc(device: vk.Device,
 					frame_count: int, 
 					extent: vk.Extent2D) -> 
 ShadowContext{
+	extent3D := vk.Extent3D{
+		extent.width, extent.height, 1,
+	}
 	render_pass := 
 			create_shadow_pass(device)
 	shadows := ShadowContext{ nil, nil, buffers_create_dubo(Shadow, frame_count), // should be light_count * frame_count?
-			make([]vk.Image, frame_count),
-			make([]vk.ImageView, frame_count),
+			make([]Image, frame_count),
 			make([]vk.Framebuffer, frame_count),
 			render_pass,
 			frame_count,
@@ -171,25 +203,19 @@ ShadowContext{
 		}
 	shadow_init_mat(device, &shadows, mat_cache, descriptor_pool)
 	shadow_fill_buffer(device, &shadows, scene, light_data, frame_count)
-	shadow_init_images(device, &shadows, frame_count, extent)
-
-
-	// Do not do bind descriptors bc no material uniforms needed?
-	// TODO: scene_setup_lights/struct LightData to have transform matrix
+	shadow_init_images(device, &shadows, frame_count, extent3D)
 
 	return shadows
 }
 
-shadow_init_images :: proc(device: vk.Device, shadows: ^ShadowContext, frame_count: int, extent: vk.Extent2D) {
+shadow_init_images :: proc(device: vk.Device, shadows: ^ShadowContext, frame_count: int, extent: vk.Extent3D) {
 	for i in 0..<frame_count {
 		shadows.images[i] = 
-			shadow_create_image(device, extent)
-		shadows.image_views[i] = 
-			shadow_create_image_view(device, shadows.images[i])
+			buffers_create_image(device, extent)
 		shadows.framebuffers[i] = 
 			shadow_create_framebuffer(device, 
 				shadows.render_pass, 
-				&shadows.image_views[i],
+				&shadows.images[i].view,
 				extent,
 			)
 	}
@@ -239,12 +265,10 @@ shadow_fill_buffer :: proc(device: vk.Device, shadows: ^ShadowContext, scene: ^S
 shadow_destroy :: proc(device: vk.Device, shadows: ^ShadowContext){
 	for i in 0..<shadows.frame_count {
 		vk.DestroyFramebuffer(device, shadows.framebuffers[i], nil)
-		vk.DestroyImageView(device, shadows.image_views[i], nil)
-		vk.DestroyImage(device, shadows.images[i], nil)
+		buffers_destroy_image(device, shadows.images[i])
 	}
 	vk.DestroyRenderPass(device, shadows.render_pass, nil)
 	vk.DestroyPipeline(device, shadows.mat.effect.pipeline, nil)
-
 	buffers_destroy(shadows.buffer)
 }
 
@@ -262,6 +286,7 @@ scene_render_shadows :: proc(scene: ^Scene,
                   &model,
                   mat4,
                   frame_num * OBJECT_COUNT + object_num)	
+				  
 	// bind object uniforms
     dynamic_offset := u32(size_of(mat4) * object_num)
     vk.CmdBindDescriptorSets(cmd, .GRAPHICS,
@@ -272,7 +297,6 @@ scene_render_shadows :: proc(scene: ^Scene,
     offset : vk.DeviceSize = 0
     vk.CmdBindVertexBuffers(cmd, 0, 1, &vertex_buffer.handle, &offset)
     vk.CmdBindIndexBuffer(cmd, index_buffer.handle, 0, .UINT16)
-
     vk.CmdDrawIndexed(cmd, u32(index_buffer.size / size_of(u16)), 1, 0, 0, 0)
 }
 
@@ -286,7 +310,7 @@ scene_draw_shadows :: proc(scene: ^Scene, cmd: vk.CommandBuffer, extent: vk.Exte
         sType = .RENDER_PASS_BEGIN_INFO,
         renderPass = scene.shadow_context.render_pass,
         framebuffer = scene.shadow_context.framebuffers[frame],
-        renderArea = {extent = extent, offset = {0, 0}},
+        renderArea = {extent = extent},
         clearValueCount = 1,
         pClearValues = &clear_value,
     }
@@ -303,17 +327,19 @@ scene_draw_shadows :: proc(scene: ^Scene, cmd: vk.CommandBuffer, extent: vk.Exte
     scissor: vk.Rect2D = { extent = extent }
     vk.CmdSetScissor(cmd, 0, 1, &scissor)
 
-	//vk.CmdBindPipeline(cmd, .GRAPHICS, scene.shadow_context.mat.effect.pipeline)
+	vk.CmdBindPipeline(cmd, .GRAPHICS, scene.shadow_context.mat.effect.pipeline)
 
-	/*
+	offset := size_of(Shadow) * u32(frame)
+
 	vk.CmdBindDescriptorSets(cmd, .GRAPHICS,
-                             scene.shadow_context.mat.effect.pipeline_layout, 3,
+                             scene.shadow_context.mat.effect.pipeline_layout, 0,
                              1, &scene.shadow_context.mat.descriptors[0],
-                             0, nil)
+                             1, &offset)
+	
 	for i in 0..<obj_count {
 		scene_render_shadows(scene, cmd, frame, i, scene.shadow_context.mat)
 	}
-	*/
+	
 
     vk.CmdEndRenderPass(cmd)
 }
