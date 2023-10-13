@@ -256,8 +256,14 @@ shadow_fill_buffer :: proc(device: vk.Device, shadows: ^ShadowContext, scene: ^S
 
 
 	shadow := Shadow {
-		la.matrix4_translate_f32(vec3(-lights^.data[0].direction.xyz)),
-		la.matrix4_perspective_f32(45, f32(500) / f32(500), 0.1, 100),
+		la.matrix4_look_at(
+			vec3{0, 2, 0},
+			vec3{0, 0, 0},
+			vec3{0, 0, -1},
+		),
+		//la.matrix4_translate_f32(vec3(-lights^.data[0].direction.xyz)),
+		la.matrix_ortho3d_f32(-5, 5, -5, 5, 0.1, 5),
+		//la.matrix4_perspective_f32(45, f32(500) / f32(500), 0.1, 100),
 	}
 	for i in 0..<frame_count { buffers_write(shadows.buffer, &shadow, Shadow, i)}
 }
