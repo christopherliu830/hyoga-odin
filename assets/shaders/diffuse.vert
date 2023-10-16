@@ -1,17 +1,17 @@
 #version 450
 
 layout(set = 0, binding = 0) uniform CameraBuffer {
-	mat4 view;
-	mat4 proj;
+    mat4 view;
+    mat4 proj;
 } _camera;
 
 layout(set = 0, binding = 1) uniform Lights {
-	vec4 direction;
-	vec4 color;
+    vec4 direction;
+    vec4 color;
 } _light;
 
 layout(set = 3, binding = 0) uniform ObjectBuffer {
-	mat4 model;
+    mat4 model;
 } _object;
 
 layout(location = 0) in vec3 position;
@@ -23,14 +23,10 @@ layout(location = 0) out vec3 fragNormal;
 layout(location = 1) out vec3 fragLightDir;
 
 void main() {
-		mat4 m = _object.model;
-		mat4 mv = _camera.view * _object.model;
-		mat4 mvp = _camera.proj * mv;
+    gl_Position = _camera.proj * _camera.view * _object.model  * vec4(position, 1.0);
 
-    gl_Position = mvp * vec4(position, 1.0);
-
-		// eye space normal
-		fragNormal = mat3(_camera.view * transpose(inverse(_object.model))) * normal;
-		fragLightDir = mat3(_camera.view) * _light.direction.xyz;
+    // Interpolated values
+    fragNormal = mat3(transpose(inverse(_object.model))) * normal;
+    fragLightDir = _light.direction.xyz;
 }
 
