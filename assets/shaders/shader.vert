@@ -6,7 +6,7 @@ layout(binding = 0) uniform CameraBuffer {
 } _camera;
 
 layout(set = 3, binding = 0) uniform ObjectBuffer {
-		mat4 model;
+    mat4 model;
 } _object;
 
 layout(location = 0) in vec3 position;
