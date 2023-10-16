@@ -34,7 +34,7 @@ Scene :: struct {
     time:            f32,
     device:          vk.Device,
     object_ubos:     Buffer,
-	shadow_context:  ShadowContext,
+    shadow_context:  ShadowContext,
 
     // Camera and lights are duplicated for each frame in flight.
     // Both frames are set as dynamic offsets within the buffer.
@@ -159,10 +159,10 @@ scene_init :: proc(scene:  ^Scene,
 
     create_test_scene(scene, &ctx.mat_cache)
 
-	// Shadow effect
-	scene.shadow_context = shadow_init(ctx.device, scene, &ctx.mat_cache, 
-		&scene.light_data, ctx.descriptor_pool, num_frames, 
-		ctx.swapchain.extent)
+    // Shadow effect
+    scene.shadow_context = shadow_init(ctx.device, scene, &ctx.mat_cache, 
+        &scene.light_data, ctx.descriptor_pool, num_frames, 
+        ctx.swapchain.extent)
 
 }
 
@@ -172,7 +172,7 @@ scene_shutdown :: proc(scene: ^Scene) {
     buffers_destroy(scene.object_ubos)
     buffers_destroy(scene.cube_vertex)
     buffers_destroy(scene.cube_index)
-	shadow_destroy(scene.device, &scene.shadow_context)
+    shadow_destroy(scene.device, &scene.shadow_context)
 }
 
 scene_setup_cameras :: proc(frame_count: int, extent: vk.Extent2D) ->
@@ -210,8 +210,8 @@ scene_setup_lights :: proc(frame_count: int) -> (lights: LightData) {
         direction = vec4 { 0, -1, 0, 1 },
         color = vec4 { 1, 1, 1, 1 },
     }
-	lights.data = make([]Light, 1)
-	lights.data[0] = light
+    lights.data = make([]Light, 1)
+    lights.data[0] = light
     for i in 0..<frame_count { buffers_write(lights.buffer, &light, Light, i) }
 
     return lights
