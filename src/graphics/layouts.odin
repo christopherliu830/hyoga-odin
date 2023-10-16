@@ -8,7 +8,7 @@ import "builders"
 LayoutType:: enum {
     DEFAULT,
     DIFFUSE,
-	SHADOW,
+    SHADOW,
 }
 
 DescriptorNumber :: enum {
@@ -63,10 +63,10 @@ ShaderLayouts :: [LayoutType][len(DescriptorNumber)][]ShaderResource {
         2 = { RESOURCE_COLOR },
         3 = { RESOURCE_OBJECT },
     },
-	.SHADOW = {
-		0 = { RESOURCE_CAMERA },
-		3 = { RESOURCE_OBJECT },
-	},
+    .SHADOW = {
+        0 = { RESOURCE_CAMERA },
+        3 = { RESOURCE_OBJECT },
+    },
 }
 
 layout_create_descriptor_layout_2 :: proc(device: vk.Device, type: LayoutType) {
@@ -79,32 +79,32 @@ layout_create_descriptor_layout_2 :: proc(device: vk.Device, type: LayoutType) {
 layout_create_descriptor_layout :: proc(device: vk.Device, type: LayoutType) -> 
 (layouts: [4]vk.DescriptorSetLayout) {
 
-	switch(type){
-		case .DEFAULT, .DIFFUSE:
-			layouts[DescriptorNumber.GLOBAL] = builders.create_descriptor_set_layout(device, {
-				{
-					binding         = 0,
-					descriptorType  = .UNIFORM_BUFFER_DYNAMIC,
-					descriptorCount = 1,
-					stageFlags      = { .VERTEX },
-				},
-				{
-					binding = 1,
-					descriptorType = .UNIFORM_BUFFER,
-					descriptorCount = 1,
-					stageFlags = { .VERTEX, .FRAGMENT },
-				},
-			})
-		case .SHADOW:
-			layouts[DescriptorNumber.GLOBAL] = builders.create_descriptor_set_layout(device, {
-				{
-					binding         = 0,
-					descriptorType  = .UNIFORM_BUFFER_DYNAMIC,
-					descriptorCount = 1,
-					stageFlags      = { .VERTEX },
-				},
-			})
-	}
+    switch(type){
+        case .DEFAULT, .DIFFUSE:
+            layouts[DescriptorNumber.GLOBAL] = builders.create_descriptor_set_layout(device, {
+                {
+                    binding         = 0,
+                    descriptorType  = .UNIFORM_BUFFER_DYNAMIC,
+                    descriptorCount = 1,
+                    stageFlags      = { .VERTEX },
+                },
+                {
+                    binding = 1,
+                    descriptorType = .UNIFORM_BUFFER,
+                    descriptorCount = 1,
+                    stageFlags = { .VERTEX, .FRAGMENT },
+                },
+            })
+        case .SHADOW:
+            layouts[DescriptorNumber.GLOBAL] = builders.create_descriptor_set_layout(device, {
+                {
+                    binding         = 0,
+                    descriptorType  = .UNIFORM_BUFFER_DYNAMIC,
+                    descriptorCount = 1,
+                    stageFlags      = { .VERTEX },
+                },
+            })
+    }
 
     switch(type) {
         case .DEFAULT, .SHADOW:
@@ -135,5 +135,7 @@ layout_create_descriptor_layout :: proc(device: vk.Device, type: LayoutType) ->
     for i in 0..<len(DescriptorNumber) do if (layouts[i] == 0) {
         layouts[i] = builders.create_descriptor_set_layout(device, {})
     }
+
     return layouts
 }
+
