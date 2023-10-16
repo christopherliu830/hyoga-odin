@@ -130,20 +130,17 @@ scene_init :: proc(scene:  ^Scene,
 
     create_test_scene(scene, &ctx.mat_cache)
 
-	// Shadow effect
-	scene.shadow_context = shadow_init(ctx.device, scene, &ctx.mat_cache, 
-		&scene.light_data, ctx.descriptor_pool, num_frames, 
-		ctx.swapchain.extent)
-
+    //TODO: Shadow Effect
 }
 
 scene_shutdown :: proc(scene: ^Scene) {
+    //TODO: shadow_destroy(scene.device, &scene.shadow_context)
+
     buffers_destroy(scene.lights_buffer)
     buffers_destroy(scene.camera_buffer)
     buffers_destroy(scene.object_ubos)
     buffers_destroy(scene.cube_vertex)
     buffers_destroy(scene.cube_index)
-	shadow_destroy(scene.device, &scene.shadow_context)
 }
 
 scene_setup_cameras :: proc(frame_count: int, extent: vk.Extent2D) ->

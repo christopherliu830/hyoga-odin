@@ -8,7 +8,7 @@ import "builders"
 LayoutType:: enum {
     DEFAULT,
     DIFFUSE,
-	SHADOW,
+    SHADOW,
 }
 
 DescriptorNumber :: enum {
@@ -68,10 +68,10 @@ ShaderLayouts :: [LayoutType][len(DescriptorNumber)][]ShaderResource {
         2 = { RESOURCE_COLOR },
         3 = { RESOURCE_OBJECT },
     },
-	.SHADOW = {
-		0 = { RESOURCE_CAMERA },
-		3 = { RESOURCE_OBJECT },
-	},
+    .SHADOW = {
+        0 = { RESOURCE_CAMERA },
+        3 = { RESOURCE_OBJECT },
+    },
 }
 
 layout_create_descriptor_layout :: proc(device: vk.Device, type: LayoutType) ->
