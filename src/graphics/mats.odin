@@ -17,28 +17,30 @@ MaterialCache :: struct {
     materials: map[string]Material,
 }
 
-VertexLayout :: struct {
-    bindings: []vk.VertexInputBindingDescription,
-    attributes: []vk.VertexInputAttributeDescription,
+ShaderFile :: struct {
+    path: string,
+    stage: vk.ShaderStageFlag
 }
 
 ShaderEffect :: struct {
     pipeline:         vk.Pipeline,
     pipeline_layout:  vk.PipelineLayout,
-    resource_layout:  LayoutType,
-    vertex_layout:    VertexLayout,
     desc_layouts:     [4]vk.DescriptorSetLayout,
-    shader_stages:    [2]struct {
-        module:  vk.ShaderModule,
-        stage:   vk.ShaderStageFlag,
-    }
+}
+
+PassType :: enum {
+    SHADOW,
+    FORWARD,
 }
 
 Material :: struct {
-    effect:      ^ShaderEffect,
-    descriptors: [4]vk.DescriptorSet,
+    passes:      [PassType]^ShaderEffect,
+    descriptors: [PassType][4]vk.DescriptorSet,
     uniforms:    Buffer,
 }
+
+MAX_SHADER_STAGES :: 2
+MATERIAL_UNIFORM_BUFFER_SIZE :: mem.Kilobyte
 
 mats_init :: proc(cache: ^MaterialCache) {
     buffer, err := make([]byte, mem.Megabyte)
@@ -54,11 +56,11 @@ mats_init :: proc(cache: ^MaterialCache) {
 
 mats_shutdown :: proc(cache: ^MaterialCache, device: vk.Device) {
     cache := cache
-    for _, effect in cache.effects {
-        mats_destroy(device, effect)
+    for key in cache.effects {
+        mats_destroy(device, &cache.effects[key])
     }
-    for _, mat in cache.materials {
-        mats_destroy(device, mat)
+    for key, mat in cache.materials {
+        mats_destroy(device, &cache.materials[key])
     }
     delete(cache.effects)
     delete(cache.materials)
@@ -69,52 +71,51 @@ mats_get_mat :: proc(cache: ^MaterialCache, name: string) -> ^Material {
     return &cache.materials[name]
 }
 
-mats_create_shader_effect :: proc(cache:            ^MaterialCache,
+mats_create_shader_effect :: proc(ctx:              ^RenderContext, 
                                   name:             string,
-                                  device:           vk.Device,
-                                  render_pass:      vk.RenderPass,
-                                  resource_layout:  LayoutType,
-                                  vertex_layout:    VertexLayout,
-                                  vert_path:        string,
-                                  frag_path:        string) ->
+                                  type:             LayoutType,
+                                  paths:            []ShaderFile) ->
 (^ShaderEffect) {
     effect: ShaderEffect
 
-    vert := builders.create_shader_module(device, read_spirv(vert_path))
-    frag := builders.create_shader_module(device, read_spirv(frag_path))
+    device := ctx.device
+    render_pass := ctx.render_pass
+    cache := ctx.mat_cache
 
-    effect.shader_stages[0] = {
-        module = vert,
-        stage = .VERTEX,
+    if name in cache.effects {
+        return &cache.effects[name]
     }
 
-    effect.shader_stages[1] = {
-        module = frag,
-        stage = .FRAGMENT,
-    }
+    stage_count := len(paths)
 
-    effect.desc_layouts = layout_create_descriptor_layout(device, resource_layout)
+    assert(stage_count <= MAX_SHADER_STAGES)
 
+    effect.desc_layouts = layout_create_descriptor_layout(device, type)
     effect.pipeline_layout = builders.create_pipeline_layout(device, effect.desc_layouts[:])
 
-    effect.resource_layout = resource_layout
-
-    effect.vertex_layout = vertex_layout
-
-    stage_count := len(effect.shader_stages)
     shader_stages := make([]vk.PipelineShaderStageCreateInfo, stage_count)
     defer delete(shader_stages)
 
-    for stage, i in effect.shader_stages {
+    modules := make([]vk.ShaderModule, stage_count)
+    defer delete(modules)
+
+    for i in 0..<len(modules) {
+        modules[i] = builders.create_shader_module(device, read_spirv(paths[i].path))
+    }
+
+    defer { for i in 0..<len(modules) do vk.DestroyShaderModule(device, modules[i], nil) }
+
+    for _ , i in paths {
         shader_stages[i] = {
             sType = .PIPELINE_SHADER_STAGE_CREATE_INFO,
             pName = "main",
-            stage = { stage.stage },
-            module = stage.module,
+            stage = { paths[i].stage },
+            module = modules[i],
         }
     }
 
-    vertex_input := builders.get_vertex_input(effect.vertex_layout.bindings, effect.vertex_layout.attributes)
+    vertex_input := builders.get_vertex_input(BINDINGS, ATTRIBUTES)
+
     effect.pipeline = builders.create_pipeline(device,
                                                layout = effect.pipeline_layout,
                                                render_pass = render_pass,
@@ -126,78 +127,52 @@ mats_create_shader_effect :: proc(cache:            ^MaterialCache,
     return &cache.effects[name]
 }
 
-mats_create :: proc(cache: ^MaterialCache,
+mats_create :: proc(ctx: ^RenderContext,
                     name: string,
-                    device: vk.Device,
-                    pool: vk.DescriptorPool,
-                    shader_effect: ^ShaderEffect) ->
+                    passes: []struct { type: PassType, effect: ^ShaderEffect }) ->
 (^Material) {
+
+    if name in ctx.mat_cache.materials do return &ctx.mat_cache.materials[name]
+
     mat: Material
-    mat.descriptors = builders.allocate_descriptor_set(device, pool, shader_effect.desc_layouts[:])
 
-    mat.effect = shader_effect
-
-    layouts := ShaderLayouts
-    layout := layouts[mat.effect.resource_layout]
-    if layout[2] != nil {
-        resource := layout[2][0]
-        mat.uniforms = buffers_create(resource.size, resource.buffer_type)
-        builders.bind_descriptor_set(device,
-                                     { mat.uniforms.handle, 0, vk.DeviceSize(mat.uniforms.size) },
-                                     resource.type,
-                                     mat.descriptors[2], 0)
-
-
+    for pass in passes {
+        if pass.effect == nil do continue
+        mat.passes[pass.type] = pass.effect
+        mat.descriptors[pass.type] = builders.allocate_descriptor_set(ctx.device, ctx.descriptor_pool, pass.effect.desc_layouts[:])
+        mat.uniforms = buffers_create(MATERIAL_UNIFORM_BUFFER_SIZE, .UNIFORM_DYNAMIC)
     }
 
-    cache.materials[name] = mat
+    ctx.mat_cache.materials[name] = mat
 
-    return &cache.materials[name]
+    return &ctx.mat_cache.materials[name]
 }
 
-mats_clone :: proc(cache:   ^MaterialCache,
-                   device:  vk.Device,
-                   pool:    vk.DescriptorPool,
-                   parent:  string,
-                   name:    string) -> (^Material) {
-    mat := cache.materials[parent]
-    mat.descriptors[2] = builders.allocate_descriptor_set(device, pool, mat.effect.desc_layouts[2:3])[0]
+mats_bind_descriptor :: proc(cmd: vk.CommandBuffer,
+                             material: ^Material,
+                             pass: PassType,
+                             set: int,
+                             dynamics: []u32 = {}) {
 
-    layouts := ShaderLayouts
-    layout := layouts[mat.effect.resource_layout]
-    if layout[2] != nil {
-        resource := layout[2][0]
-        mat.uniforms = buffers_create(resource.size, resource.buffer_type)
-        builders.bind_descriptor_set(device,
-                                     { mat.uniforms.handle, 0, vk.DeviceSize(mat.uniforms.size) },
-                                     resource.type,
-                                     mat.descriptors[2], 0)
+    vk.CmdBindDescriptorSets(cmd, .GRAPHICS,
+                             material.passes[pass].pipeline_layout, u32(set),
+                             1, &material.descriptors[pass][set],
+                             u32(len(dynamics)), raw_data(dynamics))
 
-
-    }
-
-    cache.materials[name] = mat
-
-    return &cache.materials[name]
 }
-
 
 mats_destroy :: proc { mats_destroy_shader_effect, mats_destroy_material }
 
-mats_destroy_shader_effect :: proc(device: vk.Device, effect: ShaderEffect) {
+mats_destroy_shader_effect :: proc(device: vk.Device, effect: ^ShaderEffect) {
     vk.DestroyPipeline(device, effect.pipeline, nil)
     vk.DestroyPipelineLayout(device, effect.pipeline_layout, nil)
 
     for layout in effect.desc_layouts {
         vk.DestroyDescriptorSetLayout(device, layout, nil)
     }
-
-    for stage in effect.shader_stages {
-        vk.DestroyShaderModule(device, stage.module, nil)
-    }
 }
 
-mats_destroy_material :: proc(device: vk.Device, material: Material) {
+mats_destroy_material :: proc(device: vk.Device, material: ^Material) {
     buffers_destroy(material.uniforms)
 }
 

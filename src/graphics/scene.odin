@@ -52,16 +52,8 @@ create_test_scene :: proc(scene: ^Scene, mat_cache: ^MaterialCache) {
     for i in 0..<OBJECT_COUNT {
         scene.vertex_buffers[i] = scene.cube_vertex
         scene.index_buffers[i] = scene.cube_index
-        switch i % 4 {
-            case 0: 
-                scene.materials[i] = mats_get_mat(mat_cache, "default_diffuse")
-            case 1: 
-                scene.materials[i] = mats_get_mat(mat_cache, "dd_red")
-            case 2: 
-                scene.materials[i] = mats_get_mat(mat_cache, "dd_blue")
-            case 3: 
-                scene.materials[i] = mats_get_mat(mat_cache, "dd_green")
-        }
+        if i % 2 == 0 do scene.materials[i] = mats_get_mat(mat_cache, "default_diffuse")
+        else do scene.materials[i] = mats_get_mat(mat_cache, "diffuse_red")
 
         scene.model[i] = la.MATRIX4F32_IDENTITY *
             la.matrix4_translate_f32(vec3 { math.sin(f32(i)/OBJECT_COUNT*math.TAU), 0, math.cos(f32(i)/OBJECT_COUNT*math.TAU) }) *
@@ -105,44 +97,31 @@ scene_init :: proc(scene:  ^Scene,
 
     // CREATE MATERIALS
 
-    unlit_effect := mats_create_shader_effect(&ctx.mat_cache,
+    unlit_effect := mats_create_shader_effect(ctx,
                                               "unlit_effect",
-                                              ctx.device,
-                                              ctx.render_pass,
                                               .DEFAULT,
-                                              { BINDINGS, ATTRIBUTES },
-                                              "assets/shaders/shader.vert.spv",
-                                              "assets/shaders/shader.frag.spv")
+                                              {{ "assets/shaders/shader.vert.spv", .VERTEX },
+                                              { "assets/shaders/shader.frag.spv", .FRAGMENT }})
 
-    unlit_mat := mats_create(&ctx.mat_cache, "unlit_mat", ctx.device, ctx.descriptor_pool, unlit_effect)
+    unlit_mat := mats_create(ctx, "unlit_mat", {{ .FORWARD, unlit_effect }})
 
     scene_bind_descriptors(scene, unlit_mat)
 
-    diffuse_effect := mats_create_shader_effect(&ctx.mat_cache,
+    diffuse_effect := mats_create_shader_effect(ctx,
                                                 "default_diffuse_effect",
-                                                ctx.device,
-                                                ctx.render_pass,
                                                 .DIFFUSE,
-                                                { BINDINGS, ATTRIBUTES },
-                                                "assets/shaders/diffuse.vert.spv",
-                                                "assets/shaders/diffuse.frag.spv")
+                                                {{ "assets/shaders/diffuse.vert.spv", .VERTEX },
+                                                { "assets/shaders/diffuse.frag.spv", .FRAGMENT }})
 
-    diffuse := mats_create(&ctx.mat_cache, "default_diffuse", ctx.device, ctx.descriptor_pool, diffuse_effect)
+    diffuse := mats_create(ctx, "default_diffuse", {{ .FORWARD, diffuse_effect }})
     scene_bind_descriptors(&ctx.scene, diffuse)
     data := vec4 { 1, 1, 1, 1 }
     buffers_write(diffuse.uniforms, &data)
 
-    dd_red := mats_clone(&ctx.mat_cache, ctx.device, ctx.descriptor_pool, "default_diffuse", "dd_red");
-    data = vec4 { 1, 0, 0, 1 }
-    buffers_write(dd_red.uniforms, &data)
-
-    dd_blue := mats_clone(&ctx.mat_cache, ctx.device, ctx.descriptor_pool, "default_diffuse", "dd_blue");
-    data = vec4 { 0, 1, 0, 1 }
-    buffers_write(dd_blue.uniforms, &data)
-
-    dd_green := mats_clone(&ctx.mat_cache, ctx.device, ctx.descriptor_pool, "default_diffuse", "dd_green");
-    data = vec4 { 0, 0, 1, 1 }
-    buffers_write(dd_green.uniforms, &data)
+    diffuse_red := mats_create(ctx, "diffuse_red", {{ .FORWARD, diffuse_effect }})
+    scene_bind_descriptors(&ctx.scene, diffuse_red)
+    data = vec4 { 0.6, 0.2, 0.2, 1 }
+    buffers_write(diffuse_red.uniforms, &data)
 
     create_test_scene(scene, &ctx.mat_cache)
 }
@@ -229,21 +208,20 @@ scene_render_object :: proc(scene: ^Scene,
     // BIND GLOBAL DATA
     if last_material^ == nil {
         offset := size_of(Camera) * u32(frame_num)
-        mats_bind_descriptor(cmd, material, 0, { u32(size_of(Camera) * frame_num) })
+        mats_bind_descriptor(cmd, material, .FORWARD, 0, { u32(size_of(Camera) * frame_num) })
     }
 
     // BIND PER MATERIAL DATA
     if material != last_material^ {
-        vk.CmdBindPipeline(cmd, .GRAPHICS, material.effect.pipeline)
-
-        mats_bind_descriptor(cmd, material, 2)
+        vk.CmdBindPipeline(cmd, .GRAPHICS, material.passes[.FORWARD].pipeline)
+        mats_bind_descriptor(cmd, material, .FORWARD, 2, { 0 })
     }
 
     last_material^ = material
 
     // BIND PER OBJECT DATA
     dynamic_offset := u32((frame_num * OBJECT_COUNT + object_num) * size_of(mat4))
-    mats_bind_descriptor(cmd, material, 3, { dynamic_offset })
+    mats_bind_descriptor(cmd, material, .FORWARD, 3, { dynamic_offset })
 
     offset : vk.DeviceSize = 0
 
@@ -256,16 +234,21 @@ scene_bind_descriptors :: proc(this: ^Scene, material: ^Material) {
     builders.bind_descriptor_set(this.device,
                                  { this.camera_buffer.handle, 0, size_of(Camera) },
                                  .UNIFORM_BUFFER_DYNAMIC, 
-                                 material.descriptors[0], 0)
+                                 material.descriptors[.FORWARD][0], 0)
 
     builders.bind_descriptor_set(this.device,
                                  { this.lights_buffer.handle, 0, size_of(Light) },
                                  .UNIFORM_BUFFER, 
-                                 material.descriptors[0], 1)
+                                 material.descriptors[.FORWARD][0], 1)
+
+    builders.bind_descriptor_set(this.device,
+                                 { material.uniforms.handle, 0, MATERIAL_UNIFORM_BUFFER_SIZE },
+                                 .UNIFORM_BUFFER_DYNAMIC, 
+                                 material.descriptors[.FORWARD][2], 0)
 
     builders.bind_descriptor_set(this.device,
                                  { this.object_ubos.handle, 0, size_of(mat4) },
                                  .UNIFORM_BUFFER_DYNAMIC, 
-                                 material.descriptors[3], 0)
+                                 material.descriptors[.FORWARD][3], 0)
 }
 

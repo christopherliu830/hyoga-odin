@@ -51,7 +51,7 @@ RESOURCE_OBJECT :: ShaderResource {
 
 RESOURCE_COLOR :: ShaderResource {
     name        = "_material",
-    type        = .UNIFORM_BUFFER,
+    type        = .UNIFORM_BUFFER_DYNAMIC,
     stages      = { .FRAGMENT },
     buffer_type = .UNIFORM,
     size        = size_of(vec4),
