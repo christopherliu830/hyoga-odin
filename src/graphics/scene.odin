@@ -75,7 +75,6 @@ create_test_scene :: proc(scene: ^Scene, mat_cache: ^MaterialCache) {
         y := rand.float32(&r) - 0.5 * s
         z := rand.float32(&r) - 0.5 * s
         return m * la.matrix4_rotate(t * 1, vec3 { x, y, z }) 
-        // return m
     }
 
 }
@@ -174,9 +173,10 @@ scene_setup_cameras :: proc(frame_count: int, extent: vk.Extent2D) ->
         0.1,
         100,
     )
+
     camera.proj[1][1] *= -1
 
-    for i in 0..<frame_count do buffers_write(buffer, &camera, i)
+    for i in 0..<frame_count do buffers_write_tbuffer(buffer, &camera, i)
 
     return buffer
 }
@@ -189,7 +189,7 @@ scene_setup_lights :: proc(frame_count: int) -> (lights: TBuffer(Light)) {
         color = vec4 { 1, 1, 1, 1 },
     }
 
-    for i in 0..<frame_count do buffers_write(lights, &light, i)
+    for i in 0..<frame_count do buffers_write_tbuffer(lights, &light, i)
 
     return lights
 }
@@ -203,6 +203,13 @@ scene_render :: proc(scene: ^Scene,
     cmd := perframe.command_buffer
 
     last_material: ^Material = nil
+
+    object_data : [OBJECT_COUNT]mat4
+    for i in 0..<OBJECT_COUNT do object_data[i] = scene.offsets(i, scene.time, scene.model[i])
+    buffers_write(scene.object_ubos,
+                            &object_data,
+                            size_of(object_data),
+                            uintptr(frame_num * OBJECT_COUNT * size_of(mat4)))
 
     for i in 0..<OBJECT_COUNT {
         scene_render_object(scene, cmd, int(frame_num), i, &last_material)
@@ -219,41 +226,27 @@ scene_render_object :: proc(scene: ^Scene,
     vertex_buffer := scene.vertex_buffers[object_num]
     index_buffer := scene.index_buffers[object_num]
 
-    model := scene.offsets(object_num, scene.time, scene.model[object_num])
-
-    buffers_write(scene.object_ubos,
-                  &model,
-                  frame_num * OBJECT_COUNT + object_num)
-
     // BIND GLOBAL DATA
     if last_material^ == nil {
         offset := size_of(Camera) * u32(frame_num)
-        vk.CmdBindDescriptorSets(cmd, .GRAPHICS,
-                                 material.effect.pipeline_layout, 0,
-                                 1, &material.descriptors[0],
-                                 1, &offset)
+        mats_bind_descriptor(cmd, material, 0, { u32(size_of(Camera) * frame_num) })
     }
 
     // BIND PER MATERIAL DATA
     if material != last_material^ {
         vk.CmdBindPipeline(cmd, .GRAPHICS, material.effect.pipeline)
 
-        vk.CmdBindDescriptorSets(cmd, .GRAPHICS,
-                           material.effect.pipeline_layout, 2,
-                           1, &material.descriptors[2],
-                           0, nil)
+        mats_bind_descriptor(cmd, material, 2)
     }
 
     last_material^ = material
 
     // BIND PER OBJECT DATA
-    dynamic_offset := u32(size_of(mat4) * object_num)
-    vk.CmdBindDescriptorSets(cmd, .GRAPHICS,
-                             material.effect.pipeline_layout, 3,
-                             1, &material.descriptors[3],
-                             1, &dynamic_offset)
+    dynamic_offset := u32((frame_num * OBJECT_COUNT + object_num) * size_of(mat4))
+    mats_bind_descriptor(cmd, material, 3, { dynamic_offset })
 
     offset : vk.DeviceSize = 0
+
     vk.CmdBindVertexBuffers(cmd, 0, 1, &vertex_buffer.handle, &offset)
     vk.CmdBindIndexBuffer(cmd, index_buffer.handle, 0, .UINT16)
     vk.CmdDrawIndexed(cmd, u32(index_buffer.size / size_of(u16)), 1, 0, 0, 0)

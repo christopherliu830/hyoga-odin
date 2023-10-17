@@ -247,9 +247,7 @@ buffers_destroy_staging :: proc(staging: StagingPlatform) {
 }
 
 // Move device-local memory to the GPU.
-buffers_write :: proc { buffers_write_by_offset, buffers_write_tbuffer }
-
-buffers_write_by_offset :: proc(buffer: Buffer,
+buffers_write :: proc(buffer: Buffer,
                                 data:   rawptr,
                                 size_:  int = 0,
                                 offset: uintptr = 0) ->
@@ -279,6 +277,7 @@ buffers_write_by_offset :: proc(buffer: Buffer,
 buffers_write_tbuffer :: proc(buffer:  TBuffer($T),
                               data:    rawptr,
                               index:   int) -> Result {
+
     element_size := size_of(T)
 
     if buffer.type == .UNIFORM_DYNAMIC {
@@ -287,7 +286,7 @@ buffers_write_tbuffer :: proc(buffer:  TBuffer($T),
 
     offset := uintptr(element_size * index)
 
-    return buffers_write_by_offset(buffer, data, element_size, offset)
+    return buffers_write(buffer, data, element_size, offset)
 }
 
 buffers_stage :: proc(stage:      ^StagingPlatform,
