@@ -160,8 +160,7 @@ scene_init :: proc(scene:  ^Scene,
     create_test_scene(scene, &ctx.mat_cache)
 
     // Shadow effect
-    scene.shadow_context = shadow_init(ctx.device, scene, &ctx.mat_cache, 
-        &scene.light_data, ctx.descriptor_pool, num_frames, 
+    scene.shadow_context = shadow_init(ctx.device, ctx, num_frames, 
         ctx.swapchain.extent)
 
 }
@@ -210,7 +209,7 @@ scene_setup_lights :: proc(frame_count: int) -> (lights: LightData) {
         direction = vec4 { 0, -1, 0, 1 },
         color = vec4 { 1, 1, 1, 1 },
     }
-    lights.data = make([]Light, 1)
+    //lights.data = make([]Light, 1)
     lights.data[0] = light
     for i in 0..<frame_count { buffers_write(lights.buffer, &light, Light, i) }
 

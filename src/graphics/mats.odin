@@ -5,7 +5,7 @@ import "core:log"
 import "core:os"
 import "core:mem"
 
-import la"core:math/linalg"
+import la "core:math/linalg"
 import vk "vendor:vulkan"
 
 import "builders"
@@ -24,8 +24,8 @@ VertexLayout :: struct {
 }
 
 ShaderStage :: struct{
-        module:  vk.ShaderModule,
-        stage:   vk.ShaderStageFlag,
+    module:  vk.ShaderModule,
+    stage:   vk.ShaderStageFlag,
 }
 
 ShaderEffect :: struct {
@@ -149,8 +149,8 @@ mats_create_shadow_effect :: proc(device: vk.Device, cache: ^MaterialCache, rend
 
     effect.pipeline_layout = builders.create_pipeline_layout(device, effect.desc_layouts[:]);
     
-    bindings := []vk.VertexInputBindingDescription	{ vk.VertexInputBindingDescription {0, size_of(la.Vector3f32), .VERTEX} }
-    attributes := []vk.VertexInputAttributeDescription { vk.VertexInputAttributeDescription {0, 0, .R32G32B32_SFLOAT, 0} }
+    bindings := []vk.VertexInputBindingDescription	{ vk.VertexInputBindingDescription { 0, size_of(la.Vector3f32), .VERTEX } }
+    attributes := []vk.VertexInputAttributeDescription { vk.VertexInputAttributeDescription { 0, 0, .R32G32B32_SFLOAT, 0 } }
 
     shader_stages := []vk.PipelineShaderStageCreateInfo {
         vk.PipelineShaderStageCreateInfo {
@@ -171,31 +171,12 @@ mats_create_shadow_effect :: proc(device: vk.Device, cache: ^MaterialCache, rend
     }
     
     //pipeline stuff
-    
     effect.pipeline = builders.create_pipeline(device,
                                                layout = effect.pipeline_layout,
                                                render_pass = render_pass,
                                                vertex_input = &vertex_input,
                                                color_blend = &color_blend,
                                                stages = shader_stages)
-    
-        /*
-    info := vk.GraphicsPipelineCreateInfo {
-            sType               = .GRAPHICS_PIPELINE_CREATE_INFO,
-            stageCount          = 1,
-            pStages             = raw_data(shader_stages),
-            pVertexInputState   = &vertex_input,
-            pInputAssemblyState = &input_assembly,
-            layout              = effect.pipeline_layout,
-            renderPass          = render_pass,
-            subpass             = 0,
-            basePipelineHandle  = 0,
-            basePipelineIndex   = -1,
-    }
-
-    result := vk.CreateGraphicsPipelines(device, 0, 1, &info, nil, &effect.pipeline)
-    assert(result == .SUCCESS)
-    */
     cache.effects["shadow_pass"] = effect
 
     return &cache.effects["shadow_pass"]

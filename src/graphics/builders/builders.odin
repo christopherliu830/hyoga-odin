@@ -107,3 +107,23 @@ create_shader_module :: proc(device: vk.Device, data: []u8) -> (mod: vk.ShaderMo
     return mod
 }
 
+create_framebuffer :: proc(device: vk.Device, 
+                                render_pass: vk.RenderPass, 
+                                image_view: ^vk.ImageView, 
+                                extent: vk.Extent3D) -> 
+(framebuffer: vk.Framebuffer) {
+    framebuffer_create_info := vk.FramebufferCreateInfo{
+        sType = .FRAMEBUFFER_CREATE_INFO,
+        pNext = nil,
+        flags = nil,
+        renderPass = render_pass,
+        attachmentCount = 1,
+        pAttachments = image_view,
+        width = extent.width,
+        height = extent.height,
+        layers = 1,
+    }
+    vk_assert(vk.CreateFramebuffer(device, &framebuffer_create_info, nil, &framebuffer))
+
+    return
+}
