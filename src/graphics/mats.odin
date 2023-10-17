@@ -5,7 +5,7 @@ import "core:log"
 import "core:os"
 import "core:mem"
 
-import la"core:math/linalg"
+import la "core:math/linalg"
 import vk "vendor:vulkan"
 
 import "builders"
@@ -24,8 +24,8 @@ ShaderFile :: struct {
 }
 
 ShaderStage :: struct{
-        module:  vk.ShaderModule,
-        stage:   vk.ShaderStageFlag,
+    module:  vk.ShaderModule,
+    stage:   vk.ShaderStageFlag,
 }
 
 ShaderEffect :: struct {

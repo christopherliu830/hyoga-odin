@@ -131,6 +131,8 @@ scene_init :: proc(scene:  ^Scene,
     create_test_scene(scene, &ctx.mat_cache)
 
     //TODO: Shadow Effect
+    //scene.shadow_context = shadow_init(ctx.device, ctx, num_frames, ctx.swapchain.extent)
+
 }
 
 scene_shutdown :: proc(scene: ^Scene) {
