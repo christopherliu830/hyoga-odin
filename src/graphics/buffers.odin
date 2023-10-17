@@ -11,6 +11,28 @@ import "pkgs:vma"
 
 import "builders"
 
+BufferType :: enum {
+    INDEX,
+    VERTEX,
+    STAGING,
+    UNIFORM,
+    UNIFORM_DYNAMIC
+}
+
+Buffer :: struct {
+    handle:      vk.Buffer,
+    allocation:  vma.Allocation,
+    type:        BufferType,
+    size:        int,
+    alignment:   int,
+    mapped_ptr:  rawptr,
+}
+
+TBuffer :: struct($Type: typeid) {
+    using buffer: Buffer,
+    holding: Type,
+}
+
 STAGING_BUFFER_SIZE :: 8*mem.Megabyte
 
 BufferDefaultFlags :: [BufferType]BufferCreateFlags {
@@ -71,8 +93,18 @@ buffers_shutdown :: proc() {
 /**
 * Create a buffer.
 */
-buffers_create :: proc(size: int, type: BufferType) -> Buffer {
+buffers_create :: proc(size: int, type: BufferType, alignment: int = mem.DEFAULT_ALIGNMENT) -> Buffer {
     return buffers_create_by_flags(size, buffers_default_flags(type), mem.DEFAULT_ALIGNMENT)
+}
+
+
+buffers_create_tbuffer :: proc($T: typeid,
+                               size: int,
+                               type: BufferType,
+                               alignment: int = mem.DEFAULT_ALIGNMENT) -> 
+(buffer: TBuffer(T)) {
+    buffer.buffer = buffers_create_by_flags(size, buffers_default_flags(type), mem.DEFAULT_ALIGNMENT)
+    return buffer
 }
 
 buffers_create_by_flags :: proc(size:      int,
@@ -164,12 +196,13 @@ buffers_create_image :: proc(device: vk.Device, extent: vk.Extent3D) ->
 
 buffers_create_dubo :: proc($T: typeid,
                             count: int) ->
-(buffer: Buffer) {
+(buffer: TBuffer(T)) {
     alignment := min_dubo_alignment
     elem_size := mem.align_formula(size_of(T), alignment)
     size := elem_size * count
+
     buffer.type = .UNIFORM_DYNAMIC
-    buffer = buffers_create_by_flags(size, BufferDefaultFlags[.UNIFORM_DYNAMIC], alignment)
+    buffer = buffers_create_tbuffer(T, size, .UNIFORM_DYNAMIC)
     return buffer
 }
 
@@ -214,7 +247,7 @@ buffers_destroy_staging :: proc(staging: StagingPlatform) {
 }
 
 // Move device-local memory to the GPU.
-buffers_write :: proc { buffers_write_by_offset, buffers_write_by_index }
+buffers_write :: proc { buffers_write_by_offset, buffers_write_tbuffer }
 
 buffers_write_by_offset :: proc(buffer: Buffer,
                                 data:   rawptr,
@@ -243,24 +276,20 @@ buffers_write_by_offset :: proc(buffer: Buffer,
     return .NEEDS_STAGE
 }
 
-buffers_write_by_index :: proc(buffer:  Buffer,
-                               data:    rawptr,
-                               $T:      typeid,
-                               index:   int,
-                               size:    int = 0,
-                               offset:  uintptr = 0) -> Result {
+buffers_write_tbuffer :: proc(buffer:  TBuffer($T),
+                              data:    rawptr,
+                              index:   int) -> Result {
     element_size := size_of(T)
 
     if buffer.type == .UNIFORM_DYNAMIC {
         element_size = mem.align_formula(element_size, min_dubo_alignment)
     }
 
-    offset := uintptr(element_size * index) + offset
-    write_size := size != 0 ? size : element_size
+    offset := uintptr(element_size * index)
 
-    return buffers_write_by_offset(buffer, data, write_size, offset)
+    return buffers_write_by_offset(buffer, data, element_size, offset)
 }
-            
+
 buffers_stage :: proc(stage:      ^StagingPlatform,
                       data:       rawptr,
                       size:       int,

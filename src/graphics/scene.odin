@@ -14,30 +14,21 @@ Camera :: struct {
     proj: mat4,
 }
 
-CameraData :: struct {
-    data:   Camera,
-    buffer: Buffer
-}
-
 Light :: struct { 
     direction:  vec4,
     color:      vec4,
 }
 
-LightData :: struct {
-    data: []Light,
-    buffer: Buffer,
-}
-
 Scene :: struct {
     time:            f32,
     device:          vk.Device,
-    object_ubos:     Buffer,
+    object_ubos:     TBuffer(mat4),
 
     // Camera and lights are duplicated for each frame in flight.
     // Both frames are set as dynamic offsets within the buffer.
-    cam_data:        CameraData,
-    light_data:      LightData,
+    camera_buffer:   TBuffer(Camera),
+    lights_buffer:   TBuffer(Light),
+
     cube_vertex:     Buffer,
     cube_index:      Buffer,
 
@@ -96,8 +87,8 @@ scene_init :: proc(scene:  ^Scene,
     num_frames := int(ctx.swapchain.image_count)
     scene.device = ctx.device
 
-    scene.cam_data = scene_setup_cameras(num_frames, ctx.swapchain.extent)
-    scene.light_data = scene_setup_lights(num_frames)
+    scene.camera_buffer = scene_setup_cameras(num_frames, ctx.swapchain.extent)
+    scene.lights_buffer = scene_setup_lights(num_frames)
 
     scene.object_ubos = buffers_create_dubo(mat4, OBJECT_COUNT * num_frames)
 
@@ -158,73 +149,61 @@ scene_init :: proc(scene:  ^Scene,
 }
 
 scene_shutdown :: proc(scene: ^Scene) {
-    buffers_destroy(scene.light_data.buffer)
-    buffers_destroy(scene.cam_data.buffer)
+    buffers_destroy(scene.lights_buffer)
+    buffers_destroy(scene.camera_buffer)
     buffers_destroy(scene.object_ubos)
     buffers_destroy(scene.cube_vertex)
     buffers_destroy(scene.cube_index)
 }
 
 scene_setup_cameras :: proc(frame_count: int, extent: vk.Extent2D) ->
-(cam_data: CameraData) {
-    cam_data.buffer = buffers_create_dubo(Camera, frame_count)
+(buffer: TBuffer(Camera)) {
+    buffer = buffers_create_dubo(Camera, frame_count)
 
-    c : Camera
+    camera: Camera
 
-    c.view = la.matrix4_look_at(
-        vec3 { 0, 0, 0 },
+    camera.view = la.matrix4_look_at(
+        vec3 { 0, 1, -2 },
         vec3 { 0, 0, 0 },
         vec3 { 0, 1, 0 },
     )
 
-    c.proj = la.matrix4_perspective_f32(
+    camera.proj = la.matrix4_perspective_f32(
         45,
         f32(extent.width) / f32(extent.height),
         0.1,
         100,
     )
-    c.proj[1][1] *= -1
+    camera.proj[1][1] *= -1
 
-    cam_data.data = c
+    for i in 0..<frame_count do buffers_write(buffer, &camera, i)
 
-    for i in 0..<frame_count {
-        buffers_write(cam_data.buffer, &c, Camera, i)
-    }
-
-    return cam_data
+    return buffer
 }
 
-scene_setup_lights :: proc(frame_count: int) -> (lights: LightData) {
-    lights.buffer = buffers_create_dubo(Light, frame_count)
+scene_setup_lights :: proc(frame_count: int) -> (lights: TBuffer(Light)) {
+    lights = buffers_create_dubo(Light, frame_count)
+
     light := Light {
         direction = vec4 { 0, -1, 0, 1 },
         color = vec4 { 1, 1, 1, 1 },
     }
-    for i in 0..<frame_count { buffers_write(lights.buffer, &light, Light, i) }
+
+    for i in 0..<frame_count do buffers_write(lights, &light, i)
 
     return lights
 }
 
 scene_render :: proc(scene: ^Scene,
                      perframe: ^Perframe) {
+
     scene.time += 0.001
+
     frame_num := int(perframe.index)
     cmd := perframe.command_buffer
 
-    view := la.matrix4_look_at(
-        vec3 { 0, 1, -2 },
-        vec3 { 0, 0, 0 },
-        vec3 { 0, 1, 0 },
-    )
-
-    buffers_write(scene.cam_data.buffer,
-                  &view,
-                  Camera,
-                  frame_num,
-                  size_of(mat4),
-                  offset_of(Camera, view))
-
     last_material: ^Material = nil
+
     for i in 0..<OBJECT_COUNT {
         scene_render_object(scene, cmd, int(frame_num), i, &last_material)
     }
@@ -241,9 +220,9 @@ scene_render_object :: proc(scene: ^Scene,
     index_buffer := scene.index_buffers[object_num]
 
     model := scene.offsets(object_num, scene.time, scene.model[object_num])
+
     buffers_write(scene.object_ubos,
                   &model,
-                  mat4,
                   frame_num * OBJECT_COUNT + object_num)
 
     // BIND GLOBAL DATA
@@ -282,12 +261,12 @@ scene_render_object :: proc(scene: ^Scene,
 
 scene_bind_descriptors :: proc(this: ^Scene, material: ^Material) {
     builders.bind_descriptor_set(this.device,
-                                 { this.cam_data.buffer.handle, 0, size_of(Camera) },
+                                 { this.camera_buffer.handle, 0, size_of(Camera) },
                                  .UNIFORM_BUFFER_DYNAMIC, 
                                  material.descriptors[0], 0)
 
     builders.bind_descriptor_set(this.device,
-                                 { this.light_data.buffer.handle, 0, size_of(Light) },
+                                 { this.lights_buffer.handle, 0, size_of(Light) },
                                  .UNIFORM_BUFFER, 
                                  material.descriptors[0], 1)
 
