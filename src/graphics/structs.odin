@@ -12,12 +12,19 @@ vec4 :: la.Vector4f32
 mat4 :: la.Matrix4f32
 
 Perframe :: struct {
-    index:     uint,
+    index:           int,
     in_flight_fence: vk.Fence,
     command_pool:    vk.CommandPool,
     command_buffer:  vk.CommandBuffer,
     image_available: ^SemaphoreLink,
     render_finished: vk.Semaphore,
+}
+
+PassInfo :: struct {
+    pass:          vk.RenderPass,
+    framebuffers:  []vk.Framebuffer,
+    images:        []Image,
+    extent:        vk.Extent3D,
 }
 
 QueueFamily :: enum {
@@ -39,14 +46,12 @@ SemaphoreLink :: struct {
 Swapchain :: struct
 {
     handle: vk.SwapchainKHR,
-    images: []vk.Image,
-    image_views: []vk.ImageView,
+    images: []Image,
     format: vk.SurfaceFormatKHR,
     extent: vk.Extent2D,
     present_mode: vk.PresentModeKHR,
     image_count: u32,
     support: SwapChainDetails,
-    framebuffers: []vk.Framebuffer,
 }
 
 SwapChainDetails :: struct

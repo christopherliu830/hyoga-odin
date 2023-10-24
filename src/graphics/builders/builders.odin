@@ -67,7 +67,7 @@ create_fence :: proc(device: vk.Device, flags: vk.FenceCreateFlags = {}) ->
 
 create_framebuffer :: proc(device:       vk.Device,
                            render_pass:  vk.RenderPass,
-                           image_view:   ^vk.ImageView,
+                           attachments:  []vk.ImageView,
                            extent:       vk.Extent3D) ->
 (framebuffer: vk.Framebuffer) {
 
@@ -76,8 +76,8 @@ create_framebuffer :: proc(device:       vk.Device,
         pNext           = nil,
         flags           = nil,
         renderPass      = render_pass,
-        attachmentCount = 1,
-        pAttachments    = image_view,
+        attachmentCount = u32(len(attachments)),
+        pAttachments    = raw_data(attachments),
         width           = extent.width,
         height          = extent.height,
         layers          = 1,
