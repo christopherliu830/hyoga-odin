@@ -98,6 +98,7 @@ scene_init :: proc(scene:  ^Scene,
     // CREATE MATERIALS
 
     unlit_effect := mats_create_shader_effect(ctx,
+                                              ctx.render_pass,
                                               "unlit_effect",
                                               .DEFAULT,
                                               {{ "assets/shaders/shader.vert.spv", .VERTEX },
@@ -108,6 +109,7 @@ scene_init :: proc(scene:  ^Scene,
     scene_bind_descriptors(scene, unlit_mat)
 
     diffuse_effect := mats_create_shader_effect(ctx,
+                                                ctx.render_pass,
                                                 "default_diffuse_effect",
                                                 .DIFFUSE,
                                                 {{ "assets/shaders/diffuse.vert.spv", .VERTEX },

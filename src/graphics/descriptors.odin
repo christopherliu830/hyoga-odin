@@ -33,7 +33,3 @@ descriptors_create_pool :: proc (device: vk.Device, num_sets: int) -> vk.Descrip
     return builders.create_descriptor_pool(device, num_sets, pool_sizes[:]) 
 }
 
-descriptors_point :: proc() {
-}
-
-

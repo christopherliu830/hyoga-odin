@@ -71,15 +71,15 @@ mats_get_mat :: proc(cache: ^MaterialCache, name: string) -> ^Material {
     return &cache.materials[name]
 }
 
-mats_create_shader_effect :: proc(ctx:              ^RenderContext, 
-                                  name:             string,
-                                  type:             LayoutType,
-                                  paths:            []ShaderFile) ->
+mats_create_shader_effect :: proc(ctx:          ^RenderContext,
+                                  render_pass:  vk.RenderPass,
+                                  name:         string,
+                                  type:         LayoutType,
+                                  paths:        []ShaderFile) ->
 (^ShaderEffect) {
     effect: ShaderEffect
 
     device := ctx.device
-    render_pass := ctx.render_pass
     cache := ctx.mat_cache
 
     if name in cache.effects {
@@ -164,12 +164,10 @@ mats_bind_descriptor :: proc(cmd: vk.CommandBuffer,
 mats_destroy :: proc { mats_destroy_shader_effect, mats_destroy_material }
 
 mats_destroy_shader_effect :: proc(device: vk.Device, effect: ^ShaderEffect) {
-    vk.DestroyPipeline(device, effect.pipeline, nil)
-    vk.DestroyPipelineLayout(device, effect.pipeline_layout, nil)
-
-    for layout in effect.desc_layouts {
-        vk.DestroyDescriptorSetLayout(device, layout, nil)
-    }
+    if effect == nil do return
+    if effect.pipeline != 0 do vk.DestroyPipeline(device, effect.pipeline, nil)
+    if effect.pipeline_layout != 0 do vk.DestroyPipelineLayout(device, effect.pipeline_layout, nil)
+    for layout in effect.desc_layouts do vk.DestroyDescriptorSetLayout(device, layout, nil)
 }
 
 mats_destroy_material :: proc(device: vk.Device, material: ^Material) {

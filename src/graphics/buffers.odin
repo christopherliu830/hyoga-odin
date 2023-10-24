@@ -94,7 +94,7 @@ buffers_shutdown :: proc() {
 * Create a buffer.
 */
 buffers_create :: proc(size: int, type: BufferType, alignment: int = mem.DEFAULT_ALIGNMENT) -> Buffer {
-    return buffers_create_by_flags(size, buffers_default_flags(type), mem.DEFAULT_ALIGNMENT)
+    return buffers_create_by_flags(size, buffers_default_flags(type), alignment)
 }
 
 
