@@ -29,39 +29,16 @@ ShadowContext :: struct{
     extent: vk.Extent2D,
 }
 
-shadow_create_shadow_pass :: proc(device: vk.Device) ->
-(render_pass: vk.RenderPass) {
-    depth_attachment := vk.AttachmentDescription {
-        format         = .D32_SFLOAT,
-        flags		   = {},
-        samples        = { ._1 },
-        loadOp         = .CLEAR,
-        storeOp        = .STORE,
-        stencilLoadOp  = .DONT_CARE,
-        stencilStoreOp = .DONT_CARE,
-        initialLayout  = .UNDEFINED,
-        finalLayout    = .DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-    }
+shadow_create_render_pass :: proc(device: vk.Device) -> (render_pass: vk.RenderPass) {
+    attachment, ref := builders.create_depth_attachment(0)
     
-    depth_attachment_ref := vk.AttachmentReference  {
-        attachment = 0,
-        layout = .DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-    }
-
     subpass := vk.SubpassDescription {
         pipelineBindPoint       = .GRAPHICS,
         flags 					= {},
-        colorAttachmentCount 	= 0,
-        pColorAttachments 		= nil,
-        inputAttachmentCount	= 0,
-        pInputAttachments		= nil,
-        pResolveAttachments		= nil,
-        preserveAttachmentCount	= 0,
-        pPreserveAttachments	= nil,
-        pDepthStencilAttachment = &depth_attachment_ref,
+        pDepthStencilAttachment = &ref,
     }
 
-    depth_dependency := vk.SubpassDependency {
+    dependency := vk.SubpassDependency {
         srcSubpass    = vk.SUBPASS_EXTERNAL,
         dstSubpass    = .0,
         srcStageMask  = { .EARLY_FRAGMENT_TESTS, .LATE_FRAGMENT_TESTS },
@@ -70,21 +47,7 @@ shadow_create_shadow_pass :: proc(device: vk.Device) ->
         dstAccessMask = { .DEPTH_STENCIL_ATTACHMENT_WRITE },
     }
 
-    render_pass_create_info: vk.RenderPassCreateInfo = {
-        sType           = .RENDER_PASS_CREATE_INFO,
-        flags 			= {},
-        attachmentCount = 1,
-        pAttachments    = &depth_attachment,
-        subpassCount    = 1,
-        pSubpasses      = &subpass,
-        dependencyCount = 1,
-        pDependencies   = &depth_dependency,
-    }
-
-    result := vk.CreateRenderPass(device, &render_pass_create_info, nil, &render_pass)
-    assert(result == .SUCCESS)
-
-    return render_pass
+    return builders.create_render_pass(device, { attachment }, { subpass }, { dependency })
 }
 
 shadow_init :: proc(device: vk.Device, 
@@ -96,7 +59,7 @@ ShadowContext{
         extent.width, extent.height, 1,
     }
     render_pass := 
-            shadow_create_shadow_pass(device)
+            shadow_create_render_pass(device)
     shadows := ShadowContext{ nil, nil, buffers_create_dubo(Shadow, frame_count), // should be light_count * frame_count?
             make([]Image, frame_count),
             make([]vk.Framebuffer, frame_count),

@@ -252,8 +252,7 @@ init :: proc(this: ^RenderContext) {
                                       this.surface, 
                                       this.queue_indices)
 
-    this.render_pass = builders.create_render_pass(this.device,
-                                                   this.swapchain.format.format) 
+    this.render_pass = create_render_pass(this.device, this.swapchain.format.format) 
 
     this.perframes = create_perframes(this.device, len(this.swapchain.images))
 
@@ -307,6 +306,43 @@ init_window :: proc(this: ^RenderContext) -> glfw.WindowHandle {
     }
 
     return window;
+}
+
+create_render_pass :: proc(device: vk.Device, format: vk.Format) -> 
+(render_pass: vk.RenderPass) {
+    color_attachment, color_ref := builders.create_color_attachment(0, format)
+    depth_attachment, depth_ref := builders.create_depth_attachment(1)
+
+    subpass := vk.SubpassDescription {
+        pipelineBindPoint       = .GRAPHICS,
+        colorAttachmentCount    = 1,
+        pColorAttachments       = &color_ref,
+        pDepthStencilAttachment = &depth_ref,
+    }
+
+    dependency := vk.SubpassDependency {
+        srcSubpass    = vk.SUBPASS_EXTERNAL,
+        dstSubpass    = .0,
+        srcStageMask  = { .COLOR_ATTACHMENT_OUTPUT },
+        srcAccessMask = { },
+        dstStageMask  = { .COLOR_ATTACHMENT_OUTPUT },
+        dstAccessMask = { .COLOR_ATTACHMENT_READ, .COLOR_ATTACHMENT_WRITE },
+    }
+    
+    depth_dependency := vk.SubpassDependency {
+        srcSubpass    = vk.SUBPASS_EXTERNAL,
+        dstSubpass    = .0,
+        srcStageMask  = { .EARLY_FRAGMENT_TESTS, .LATE_FRAGMENT_TESTS },
+        srcAccessMask = {},
+        dstStageMask  = { .EARLY_FRAGMENT_TESTS, .LATE_FRAGMENT_TESTS },
+        dstAccessMask = { .DEPTH_STENCIL_ATTACHMENT_WRITE },
+    }
+
+    subpasses := []vk.SubpassDescription { subpass }
+    attachments := []vk.AttachmentDescription { color_attachment, depth_attachment }
+    dependencies := []vk.SubpassDependency { dependency, depth_dependency }
+
+    return builders.create_render_pass(device, attachments, subpasses, dependencies) 
 }
 
 create_perframes :: proc(device: vk.Device, count: int) ->
