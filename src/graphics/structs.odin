@@ -77,23 +77,6 @@ Result :: enum {
     NEEDS_STAGE,
 }
 
-BufferType :: enum {
-    INDEX,
-    VERTEX,
-    STAGING,
-    UNIFORM,
-    UNIFORM_DYNAMIC
-}
-
-Buffer :: struct {
-    handle:      vk.Buffer,
-    allocation:  vma.Allocation,
-    type:        BufferType,
-    size:        int,
-    alignment:   int,
-    mapped_ptr:  rawptr,
-}
-
 Image :: struct {
     handle:      vk.Image,
     view:        vk.ImageView,

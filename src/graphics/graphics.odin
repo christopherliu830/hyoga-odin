@@ -35,7 +35,6 @@ RenderContext :: struct {
     depth_image:          Image,
 
     scene:                Scene,
-    camera_data:          CameraData,
 
     mat_cache:            MaterialCache,
 

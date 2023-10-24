@@ -20,6 +20,7 @@ DescriptorNumber :: enum {
 ShaderResource :: struct {
     name:         string,
     type:         vk.DescriptorType,
+    stages:       vk.ShaderStageFlags,
     buffer_type:  BufferType,
     size:         int,
 }
@@ -27,6 +28,7 @@ ShaderResource :: struct {
 RESOURCE_CAMERA :: ShaderResource {
     name        = "_camera",
     type        = .UNIFORM_BUFFER_DYNAMIC,
+    stages      = { .VERTEX },
     buffer_type = .UNIFORM_DYNAMIC,
     size        = size_of(Camera),
 }
@@ -34,6 +36,7 @@ RESOURCE_CAMERA :: ShaderResource {
 RESOURCE_LIGHTS :: ShaderResource {
     name        = "_lights",
     type        = .UNIFORM_BUFFER,
+    stages      = { .VERTEX, .FRAGMENT },
     buffer_type = .UNIFORM,
     size        = size_of(Light),
 }
@@ -41,13 +44,15 @@ RESOURCE_LIGHTS :: ShaderResource {
 RESOURCE_OBJECT :: ShaderResource {
     name        = "_object",
     type        = .UNIFORM_BUFFER_DYNAMIC,
+    stages      = { .VERTEX },
     buffer_type = .UNIFORM_DYNAMIC,
     size        = size_of(mat4),
 }
 
 RESOURCE_COLOR :: ShaderResource {
     name        = "_material",
-    type        = .UNIFORM_BUFFER,
+    type        = .UNIFORM_BUFFER_DYNAMIC,
+    stages      = { .FRAGMENT },
     buffer_type = .UNIFORM,
     size        = size_of(vec4),
 }
@@ -64,55 +69,27 @@ ShaderLayouts :: [LayoutType][len(DescriptorNumber)][]ShaderResource {
     },
 }
 
-layout_create_descriptor_layout_2 :: proc(device: vk.Device, type: LayoutType) {
-    layouts := ShaderLayouts
-    for binding_list, i in layouts {
-    }
-}
-
-// Big switch statement for manual vertex layouts.
-layout_create_descriptor_layout :: proc(device: vk.Device, type: LayoutType) -> 
+layout_create_descriptor_layout :: proc(device: vk.Device, type: LayoutType) ->
 (layouts: [len(DescriptorNumber)]vk.DescriptorSetLayout) {
+    config := ShaderLayouts
 
-    layouts[DescriptorNumber.GLOBAL] = builders.create_descriptor_set_layout(device, {
-        {
-            binding         = 0,
-            descriptorType  = .UNIFORM_BUFFER_DYNAMIC,
-            descriptorCount = 1,
-            stageFlags      = { .VERTEX },
-        },
-        {
-            binding = 1,
-            descriptorType = .UNIFORM_BUFFER,
-            descriptorCount = 1,
-            stageFlags = { .VERTEX, .FRAGMENT },
-        },
-    })
+    for _, set_num in DescriptorNumber {
+        resources := config[type][set_num]
 
-    switch(type) {
+        bindings := make([]vk.DescriptorSetLayoutBinding, len(resources))
+        defer delete(bindings)
 
-        case .DEFAULT:
-            layouts[DescriptorNumber.PER_OBJECT] = builders.create_descriptor_set_layout(device, {{
-                binding = 0,
-                descriptorType = .UNIFORM_BUFFER_DYNAMIC,
+        for binding_num in 0..<len(resources) {
+            resource := resources[binding_num]
+            bindings[binding_num] = {
+                binding         = u32(binding_num),
+                descriptorType  = resource.type,
                 descriptorCount = 1,
-                stageFlags = { .VERTEX },
-            }})
+                stageFlags      = resource.stages,
+            }
+        }
 
-        case .DIFFUSE:
-            layouts[DescriptorNumber.PER_MATERIAL] = builders.create_descriptor_set_layout(device, {{
-                binding = 0,
-                descriptorType = .UNIFORM_BUFFER,
-                descriptorCount = 1,
-                stageFlags = { .FRAGMENT },
-            }})
-
-            layouts[DescriptorNumber.PER_OBJECT] = builders.create_descriptor_set_layout(device, {{
-                binding = 0,
-                descriptorType = .UNIFORM_BUFFER_DYNAMIC,
-                descriptorCount = 1,
-                stageFlags = { .VERTEX },
-            }})
+        layouts[set_num] = builders.create_descriptor_set_layout(device, bindings)
     }
 
     // Fill in empty layouts with no bindings

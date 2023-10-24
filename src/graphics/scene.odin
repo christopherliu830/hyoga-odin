@@ -14,30 +14,21 @@ Camera :: struct {
     proj: mat4,
 }
 
-CameraData :: struct {
-    data:   Camera,
-    buffer: Buffer
-}
-
 Light :: struct { 
     direction:  vec4,
     color:      vec4,
 }
 
-LightData :: struct {
-    data: []Light,
-    buffer: Buffer,
-}
-
 Scene :: struct {
     time:            f32,
     device:          vk.Device,
-    object_ubos:     Buffer,
+    object_ubos:     TBuffer(mat4),
 
     // Camera and lights are duplicated for each frame in flight.
     // Both frames are set as dynamic offsets within the buffer.
-    cam_data:        CameraData,
-    light_data:      LightData,
+    camera_buffer:   TBuffer(Camera),
+    lights_buffer:   TBuffer(Light),
+
     cube_vertex:     Buffer,
     cube_index:      Buffer,
 
@@ -61,16 +52,8 @@ create_test_scene :: proc(scene: ^Scene, mat_cache: ^MaterialCache) {
     for i in 0..<OBJECT_COUNT {
         scene.vertex_buffers[i] = scene.cube_vertex
         scene.index_buffers[i] = scene.cube_index
-        switch i % 4 {
-            case 0: 
-                scene.materials[i] = mats_get_mat(mat_cache, "default_diffuse")
-            case 1: 
-                scene.materials[i] = mats_get_mat(mat_cache, "dd_red")
-            case 2: 
-                scene.materials[i] = mats_get_mat(mat_cache, "dd_blue")
-            case 3: 
-                scene.materials[i] = mats_get_mat(mat_cache, "dd_green")
-        }
+        if i % 2 == 0 do scene.materials[i] = mats_get_mat(mat_cache, "default_diffuse")
+        else do scene.materials[i] = mats_get_mat(mat_cache, "diffuse_red")
 
         scene.model[i] = la.MATRIX4F32_IDENTITY *
             la.matrix4_translate_f32(vec3 { math.sin(f32(i)/OBJECT_COUNT*math.TAU), 0, math.cos(f32(i)/OBJECT_COUNT*math.TAU) }) *
@@ -84,7 +67,6 @@ create_test_scene :: proc(scene: ^Scene, mat_cache: ^MaterialCache) {
         y := rand.float32(&r) - 0.5 * s
         z := rand.float32(&r) - 0.5 * s
         return m * la.matrix4_rotate(t * 1, vec3 { x, y, z }) 
-        // return m
     }
 
 }
@@ -96,8 +78,8 @@ scene_init :: proc(scene:  ^Scene,
     num_frames := int(ctx.swapchain.image_count)
     scene.device = ctx.device
 
-    scene.cam_data = scene_setup_cameras(num_frames, ctx.swapchain.extent)
-    scene.light_data = scene_setup_lights(num_frames)
+    scene.camera_buffer = scene_setup_cameras(num_frames, ctx.swapchain.extent)
+    scene.lights_buffer = scene_setup_lights(num_frames)
 
     scene.object_ubos = buffers_create_dubo(mat4, OBJECT_COUNT * num_frames)
 
@@ -115,116 +97,101 @@ scene_init :: proc(scene:  ^Scene,
 
     // CREATE MATERIALS
 
-    unlit_effect := mats_create_shader_effect(&ctx.mat_cache,
-                                              "unlit_effect",
-                                              ctx.device,
+    unlit_effect := mats_create_shader_effect(ctx,
                                               ctx.render_pass,
+                                              "unlit_effect",
                                               .DEFAULT,
-                                              { BINDINGS, ATTRIBUTES },
-                                              "assets/shaders/shader.vert.spv",
-                                              "assets/shaders/shader.frag.spv")
+                                              {{ "assets/shaders/shader.vert.spv", .VERTEX },
+                                              { "assets/shaders/shader.frag.spv", .FRAGMENT }})
 
-    unlit_mat := mats_create(&ctx.mat_cache, "unlit_mat", ctx.device, ctx.descriptor_pool, unlit_effect)
+    unlit_mat := mats_create(ctx, "unlit_mat", {{ .FORWARD, unlit_effect }})
 
     scene_bind_descriptors(scene, unlit_mat)
 
-    diffuse_effect := mats_create_shader_effect(&ctx.mat_cache,
-                                                "default_diffuse_effect",
-                                                ctx.device,
+    diffuse_effect := mats_create_shader_effect(ctx,
                                                 ctx.render_pass,
+                                                "default_diffuse_effect",
                                                 .DIFFUSE,
-                                                { BINDINGS, ATTRIBUTES },
-                                                "assets/shaders/diffuse.vert.spv",
-                                                "assets/shaders/diffuse.frag.spv")
+                                                {{ "assets/shaders/diffuse.vert.spv", .VERTEX },
+                                                { "assets/shaders/diffuse.frag.spv", .FRAGMENT }})
 
-    diffuse := mats_create(&ctx.mat_cache, "default_diffuse", ctx.device, ctx.descriptor_pool, diffuse_effect)
+    diffuse := mats_create(ctx, "default_diffuse", {{ .FORWARD, diffuse_effect }})
     scene_bind_descriptors(&ctx.scene, diffuse)
     data := vec4 { 1, 1, 1, 1 }
     buffers_write(diffuse.uniforms, &data)
 
-    dd_red := mats_clone(&ctx.mat_cache, ctx.device, ctx.descriptor_pool, "default_diffuse", "dd_red");
-    data = vec4 { 1, 0, 0, 1 }
-    buffers_write(dd_red.uniforms, &data)
-
-    dd_blue := mats_clone(&ctx.mat_cache, ctx.device, ctx.descriptor_pool, "default_diffuse", "dd_blue");
-    data = vec4 { 0, 1, 0, 1 }
-    buffers_write(dd_blue.uniforms, &data)
-
-    dd_green := mats_clone(&ctx.mat_cache, ctx.device, ctx.descriptor_pool, "default_diffuse", "dd_green");
-    data = vec4 { 0, 0, 1, 1 }
-    buffers_write(dd_green.uniforms, &data)
+    diffuse_red := mats_create(ctx, "diffuse_red", {{ .FORWARD, diffuse_effect }})
+    scene_bind_descriptors(&ctx.scene, diffuse_red)
+    data = vec4 { 0.6, 0.2, 0.2, 1 }
+    buffers_write(diffuse_red.uniforms, &data)
 
     create_test_scene(scene, &ctx.mat_cache)
 }
 
 scene_shutdown :: proc(scene: ^Scene) {
-    buffers_destroy(scene.light_data.buffer)
-    buffers_destroy(scene.cam_data.buffer)
+    buffers_destroy(scene.lights_buffer)
+    buffers_destroy(scene.camera_buffer)
     buffers_destroy(scene.object_ubos)
     buffers_destroy(scene.cube_vertex)
     buffers_destroy(scene.cube_index)
 }
 
 scene_setup_cameras :: proc(frame_count: int, extent: vk.Extent2D) ->
-(cam_data: CameraData) {
-    cam_data.buffer = buffers_create_dubo(Camera, frame_count)
+(buffer: TBuffer(Camera)) {
+    buffer = buffers_create_dubo(Camera, frame_count)
 
-    c : Camera
+    camera: Camera
 
-    c.view = la.matrix4_look_at(
-        vec3 { 0, 0, 0 },
+    camera.view = la.matrix4_look_at(
+        vec3 { 0, 1, -2 },
         vec3 { 0, 0, 0 },
         vec3 { 0, 1, 0 },
     )
 
-    c.proj = la.matrix4_perspective_f32(
+    camera.proj = la.matrix4_perspective_f32(
         45,
         f32(extent.width) / f32(extent.height),
         0.1,
         100,
     )
-    c.proj[1][1] *= -1
 
-    cam_data.data = c
+    camera.proj[1][1] *= -1
 
-    for i in 0..<frame_count {
-        buffers_write(cam_data.buffer, &c, Camera, i)
-    }
+    for i in 0..<frame_count do buffers_write_tbuffer(buffer, &camera, i)
 
-    return cam_data
+    return buffer
 }
 
-scene_setup_lights :: proc(frame_count: int) -> (lights: LightData) {
-    lights.buffer = buffers_create_dubo(Light, frame_count)
+scene_setup_lights :: proc(frame_count: int) -> (lights: TBuffer(Light)) {
+    lights = buffers_create_dubo(Light, frame_count)
+
     light := Light {
         direction = vec4 { 0, -1, 0, 1 },
         color = vec4 { 1, 1, 1, 1 },
     }
-    for i in 0..<frame_count { buffers_write(lights.buffer, &light, Light, i) }
+
+    for i in 0..<frame_count do buffers_write_tbuffer(lights, &light, i)
 
     return lights
 }
 
 scene_render :: proc(scene: ^Scene,
                      perframe: ^Perframe) {
+
     scene.time += 0.001
+
     frame_num := int(perframe.index)
     cmd := perframe.command_buffer
 
-    view := la.matrix4_look_at(
-        vec3 { 0, 1, -2 },
-        vec3 { 0, 0, 0 },
-        vec3 { 0, 1, 0 },
-    )
-
-    buffers_write(scene.cam_data.buffer,
-                  &view,
-                  Camera,
-                  frame_num,
-                  size_of(mat4),
-                  offset_of(Camera, view))
-
     last_material: ^Material = nil
+
+    object_data : [OBJECT_COUNT]mat4
+    for i in 0..<OBJECT_COUNT do object_data[i] = scene.offsets(i, scene.time, scene.model[i])
+    buffers_write(scene.object_ubos,
+                            &object_data,
+                            size_of(object_data),
+                            uintptr(frame_num * OBJECT_COUNT * size_of(mat4)))
+
     for i in 0..<OBJECT_COUNT {
         scene_render_object(scene, cmd, int(frame_num), i, &last_material)
     }
@@ -240,41 +207,26 @@ scene_render_object :: proc(scene: ^Scene,
     vertex_buffer := scene.vertex_buffers[object_num]
     index_buffer := scene.index_buffers[object_num]
 
-    model := scene.offsets(object_num, scene.time, scene.model[object_num])
-    buffers_write(scene.object_ubos,
-                  &model,
-                  mat4,
-                  frame_num * OBJECT_COUNT + object_num)
-
     // BIND GLOBAL DATA
     if last_material^ == nil {
         offset := size_of(Camera) * u32(frame_num)
-        vk.CmdBindDescriptorSets(cmd, .GRAPHICS,
-                                 material.effect.pipeline_layout, 0,
-                                 1, &material.descriptors[0],
-                                 1, &offset)
+        mats_bind_descriptor(cmd, material, .FORWARD, 0, { u32(size_of(Camera) * frame_num) })
     }
 
     // BIND PER MATERIAL DATA
     if material != last_material^ {
-        vk.CmdBindPipeline(cmd, .GRAPHICS, material.effect.pipeline)
-
-        vk.CmdBindDescriptorSets(cmd, .GRAPHICS,
-                           material.effect.pipeline_layout, 2,
-                           1, &material.descriptors[2],
-                           0, nil)
+        vk.CmdBindPipeline(cmd, .GRAPHICS, material.passes[.FORWARD].pipeline)
+        mats_bind_descriptor(cmd, material, .FORWARD, 2, { 0 })
     }
 
     last_material^ = material
 
     // BIND PER OBJECT DATA
-    dynamic_offset := u32(size_of(mat4) * object_num)
-    vk.CmdBindDescriptorSets(cmd, .GRAPHICS,
-                             material.effect.pipeline_layout, 3,
-                             1, &material.descriptors[3],
-                             1, &dynamic_offset)
+    dynamic_offset := u32((frame_num * OBJECT_COUNT + object_num) * size_of(mat4))
+    mats_bind_descriptor(cmd, material, .FORWARD, 3, { dynamic_offset })
 
     offset : vk.DeviceSize = 0
+
     vk.CmdBindVertexBuffers(cmd, 0, 1, &vertex_buffer.handle, &offset)
     vk.CmdBindIndexBuffer(cmd, index_buffer.handle, 0, .UINT16)
     vk.CmdDrawIndexed(cmd, u32(index_buffer.size / size_of(u16)), 1, 0, 0, 0)
@@ -282,18 +234,23 @@ scene_render_object :: proc(scene: ^Scene,
 
 scene_bind_descriptors :: proc(this: ^Scene, material: ^Material) {
     builders.bind_descriptor_set(this.device,
-                                 { this.cam_data.buffer.handle, 0, size_of(Camera) },
+                                 { this.camera_buffer.handle, 0, size_of(Camera) },
                                  .UNIFORM_BUFFER_DYNAMIC, 
-                                 material.descriptors[0], 0)
+                                 material.descriptors[.FORWARD][0], 0)
 
     builders.bind_descriptor_set(this.device,
-                                 { this.light_data.buffer.handle, 0, size_of(Light) },
+                                 { this.lights_buffer.handle, 0, size_of(Light) },
                                  .UNIFORM_BUFFER, 
-                                 material.descriptors[0], 1)
+                                 material.descriptors[.FORWARD][0], 1)
+
+    builders.bind_descriptor_set(this.device,
+                                 { material.uniforms.handle, 0, MATERIAL_UNIFORM_BUFFER_SIZE },
+                                 .UNIFORM_BUFFER_DYNAMIC, 
+                                 material.descriptors[.FORWARD][2], 0)
 
     builders.bind_descriptor_set(this.device,
                                  { this.object_ubos.handle, 0, size_of(mat4) },
                                  .UNIFORM_BUFFER_DYNAMIC, 
-                                 material.descriptors[3], 0)
+                                 material.descriptors[.FORWARD][3], 0)
 }
 
