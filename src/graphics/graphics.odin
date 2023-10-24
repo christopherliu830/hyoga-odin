@@ -158,7 +158,7 @@ draw :: proc(this: ^RenderContext, index: u32) -> vk.Result {
     scene_render(&this.scene, &this.perframes[index])
     
     vk.CmdEndRenderPass(cmd)
-    
+
     vk.EndCommandBuffer(cmd) or_return
 
     wait_stage: vk.PipelineStageFlags = { .COLOR_ATTACHMENT_OUTPUT }

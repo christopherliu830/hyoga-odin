@@ -113,25 +113,15 @@ create_pipeline :: proc(device:           vk.Device,
 
 create_pipeline_layout :: proc(device: vk.Device, layouts: []vk.DescriptorSetLayout) ->
 (layout: vk.PipelineLayout) {
-
-    count := u32(len(layouts))
-    ls : [4]vk.DescriptorSetLayout
-    for i in 0..<count {
-        ls[i] = layouts[i]
-    }
-
-    info: vk.PipelineLayoutCreateInfo = {
+    info := vk.PipelineLayoutCreateInfo {
         sType          = .PIPELINE_LAYOUT_CREATE_INFO,
-        setLayoutCount = count,
-        pSetLayouts    = raw_data(ls[:]),
+        setLayoutCount = u32(len(layouts)),
+        pSetLayouts    = raw_data(layouts),
     }
 
-    result := vk.CreatePipelineLayout(device, &info, nil, &layout)
-    assert(result == .SUCCESS)
+    vk_assert(vk.CreatePipelineLayout(device, &info, nil, &layout))
     return layout
 }
-
-
 
 create_render_pass :: proc(device: vk.Device, format: vk.Format) ->
 (render_pass: vk.RenderPass) {
@@ -196,7 +186,7 @@ create_render_pass :: proc(device: vk.Device, format: vk.Format) ->
     attachments := []vk.AttachmentDescription { color_attachment, depth_attachment }
     dependencies := []vk.SubpassDependency { dependency, depth_dependency }
 
-    render_pass_create_info: vk.RenderPassCreateInfo = {
+    render_pass_create_info := vk.RenderPassCreateInfo {
         sType           = .RENDER_PASS_CREATE_INFO,
         attachmentCount = u32(len(attachments)),
         pAttachments    = raw_data(attachments),
@@ -206,8 +196,7 @@ create_render_pass :: proc(device: vk.Device, format: vk.Format) ->
         pDependencies   = raw_data(dependencies),
     }
 
-    result := vk.CreateRenderPass(device, &render_pass_create_info, nil, &render_pass)
-    assert(result == .SUCCESS)
+    vk_assert(vk.CreateRenderPass(device, &render_pass_create_info, nil, &render_pass))
 
     return render_pass
 }

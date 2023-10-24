@@ -65,16 +65,38 @@ create_fence :: proc(device: vk.Device, flags: vk.FenceCreateFlags = {}) ->
     return fence
 }
 
+create_framebuffer :: proc(device:       vk.Device,
+                           render_pass:  vk.RenderPass,
+                           image_view:   ^vk.ImageView,
+                           extent:       vk.Extent3D) ->
+(framebuffer: vk.Framebuffer) {
+
+    info := vk.FramebufferCreateInfo {
+        sType           = .FRAMEBUFFER_CREATE_INFO,
+        pNext           = nil,
+        flags           = nil,
+        renderPass      = render_pass,
+        attachmentCount = 1,
+        pAttachments    = image_view,
+        width           = extent.width,
+        height          = extent.height,
+        layers          = 1,
+    }
+
+    vk_assert(vk.CreateFramebuffer(device, &info, nil, &framebuffer))
+    return framebuffer
+}
+
 create_instance :: proc(extensions: []cstring, layers: []cstring = nil) ->
 (instance: vk.Instance) {
-    application_info: vk.ApplicationInfo = {
+    application_info := vk.ApplicationInfo {
         sType            = .APPLICATION_INFO,
         pApplicationName = "Untitled",
         pEngineName      = "Hyoga",
         apiVersion       = vk.API_VERSION_1_3,
     }
 
-    info: vk.InstanceCreateInfo = {
+    info := vk.InstanceCreateInfo {
         sType                   = .INSTANCE_CREATE_INFO,
         flags                   = nil,
         enabledExtensionCount   = u32(len(extensions)),
@@ -89,41 +111,20 @@ create_instance :: proc(extensions: []cstring, layers: []cstring = nil) ->
 }
 
 create_semaphore :: proc(device: vk.Device) -> (semaphore: vk.Semaphore) {
-    info: vk.SemaphoreCreateInfo = {
-        sType = .SEMAPHORE_CREATE_INFO,
-    }
+    info := vk.SemaphoreCreateInfo { sType = .SEMAPHORE_CREATE_INFO }
+
     vk_assert(vk.CreateSemaphore(device, &info, nil, &semaphore))
     return semaphore
 }
 
 create_shader_module :: proc(device: vk.Device, data: []u8) -> (mod: vk.ShaderModule) {
-    info: vk.ShaderModuleCreateInfo = {
-        sType = .SHADER_MODULE_CREATE_INFO,
+    info := vk.ShaderModuleCreateInfo {
+        sType    = .SHADER_MODULE_CREATE_INFO,
         codeSize = len(data),
-        pCode = cast(^u32)(raw_data(data)),
+        pCode    = cast(^u32)(raw_data(data)),
     }
 
     vk_assert(vk.CreateShaderModule(device, &info, nil, &mod))
     return mod
 }
 
-create_framebuffer :: proc(device: vk.Device, 
-                                render_pass: vk.RenderPass, 
-                                image_view: ^vk.ImageView, 
-                                extent: vk.Extent3D) -> 
-(framebuffer: vk.Framebuffer) {
-    framebuffer_create_info := vk.FramebufferCreateInfo{
-        sType = .FRAMEBUFFER_CREATE_INFO,
-        pNext = nil,
-        flags = nil,
-        renderPass = render_pass,
-        attachmentCount = 1,
-        pAttachments = image_view,
-        width = extent.width,
-        height = extent.height,
-        layers = 1,
-    }
-    vk_assert(vk.CreateFramebuffer(device, &framebuffer_create_info, nil, &framebuffer))
-
-    return
-}

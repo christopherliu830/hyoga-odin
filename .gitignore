@@ -1,15 +1,4 @@
 .vs
 .vscode
-src.exe
-assets/shaders/compile.bat
-assets/shaders/shader.frag.spv
-assets/shaders/shader.vert.spv
-pkgs/obacktracing/**
-build.bat
-run.bat
-src.pdb
-.gitignore
-*.cap
-frames/
 
 /build

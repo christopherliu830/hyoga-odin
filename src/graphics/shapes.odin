@@ -60,61 +60,7 @@ create_tetrahedron :: proc() -> Tetrahedron {
 
     return tetra
 }
-/*
-create_cube :: proc() -> Cube {
 
-    vertices := [8]la.Vector3f32 {
-        {-1, -1, -1},
-        {-1, -1,  1},
-        {-1,  1, -1},
-        {-1,  1,  1},
-        { 1, -1, -1},
-        { 1, -1,  1},
-        { 1,  1, -1},
-        { 1,  1,  1},
-    };
-
-    color := la.Vector4f32 { 1, 1, 1, 1 }
-
-    cube: Cube
-
-    for i in 0..<8 {
-        cube.vertices[i].position     = vertices[i];
-        cube.vertices[i].normal       = vertices[i];
-        cube.vertices[i].color        = color;
-    }
-
-    cube.indices = {
-        // TOP
-        3, 6, 2,
-        6, 3, 7,
-
-        // BOTTOM
-        0, 1, 4,
-        4, 1, 5,
-
-        // LEFT
-        0, 1, 2,
-        3, 2, 1,
-
-        // RIGHT
-        6, 5, 4,
-        5, 6, 7,
-
-        // FRONT
-        0, 2, 4,
-        4, 2, 6,
-
-        // BACK
-        5, 3, 1,
-        3, 5, 7,
-    };
-
-    for _, i in cube.vertices do cube.vertices[i].position /= 2 
-
-    return cube
-}
-*/
 create_cube :: proc() -> Cube {
 
     vertices := [8]la.Vector3f32 {
@@ -177,3 +123,4 @@ create_cube :: proc() -> Cube {
 
     return cube
 }
+
