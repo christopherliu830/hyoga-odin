@@ -108,24 +108,25 @@ swapchain_create :: proc(device:         vk.Device,
         oldSwapchain          = old_swapchain.handle,
     }
 
-    log.debug("Swapchain create")
     vk_assert(vk.CreateSwapchainKHR(device, &swapchain_create_info, nil, &swapchain.handle))
 
     if &old_swapchain.handle != nil do  swapchain_destroy(device, old_swapchain)
 
     vk_assert(vk.GetSwapchainImagesKHR(device, swapchain.handle, &count, nil))
-    swapchain.images = make([]vk.Image, count)
-    vk_assert(vk.GetSwapchainImagesKHR(device, swapchain.handle, &count, raw_data(swapchain.images)))
+    images := make([]vk.Image, count)
+    defer delete(images)
+    vk_assert(vk.GetSwapchainImagesKHR(device, swapchain.handle, &count, raw_data(images)))
 
-    swapchain.image_views = make([]vk.ImageView, count)
+    swapchain.images = make([]Image, count)
+    for i in 0..<count do swapchain.images[i].handle = images[i]
+
     for i in 0..<count {
         image_view_create_info : vk.ImageViewCreateInfo = {
             sType = .IMAGE_VIEW_CREATE_INFO,
-            image = swapchain.images[i],
+            image = images[i],
             viewType = .D2,
             format = swapchain.format.format,
             components = { r = .IDENTITY, g = .IDENTITY, b = .IDENTITY, a = .IDENTITY },
-
             subresourceRange = {
                 aspectMask = { .COLOR },
                 baseMipLevel = 0,
@@ -135,7 +136,7 @@ swapchain_create :: proc(device:         vk.Device,
             },
         }
 
-        vk_assert(vk.CreateImageView(device, &image_view_create_info, nil, &(swapchain.image_views[i])))
+        vk_assert(vk.CreateImageView(device, &image_view_create_info, nil, &(swapchain.images[i].view)))
     }
 
     return swapchain
@@ -143,15 +144,12 @@ swapchain_create :: proc(device:         vk.Device,
 
 swapchain_destroy :: proc(device: vk.Device, swapchain: Swapchain) {
 
-    for image_view in swapchain.image_views {
-        vk.DestroyImageView(device, image_view, nil)
-    }
+    for image in swapchain.images do vk.DestroyImageView(device, image.view, nil)
 
     // Images controlled by swapchain do not need to be destroyed
 
     vk.DestroySwapchainKHR(device, swapchain.handle, nil)
 
-    delete(swapchain.image_views)
     delete(swapchain.images)
 }
 
@@ -160,10 +158,10 @@ swapchain_create_framebuffers :: proc(device: vk.Device,
                                       swapchain: Swapchain,
                                       depth_image: Image) ->
 (framebuffers: []vk.Framebuffer) {
-    framebuffers = make([]vk.Framebuffer, len(swapchain.image_views)) 
+    framebuffers = make([]vk.Framebuffer, swapchain.image_count) 
 
-    for i in 0..<len(swapchain.image_views) {
-        attachments: []vk.ImageView = { swapchain.image_views[i], depth_image.view }
+    for i in 0..<swapchain.image_count {
+        attachments: []vk.ImageView = { swapchain.images[i].view, depth_image.view }
 
         framebuffer_create_info: vk.FramebufferCreateInfo = {
             sType           = .FRAMEBUFFER_CREATE_INFO,

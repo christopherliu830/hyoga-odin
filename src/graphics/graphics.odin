@@ -25,7 +25,7 @@ RenderContext :: struct {
     device:               vk.Device,
     surface:              vk.SurfaceKHR,
     swapchain:            Swapchain,
-    render_pass:          vk.RenderPass,
+    passes:               [PassType]PassInfo,
     descriptor_pool:      vk.DescriptorPool,
     stage:                StagingPlatform,
     perframes:            []Perframe,
@@ -58,12 +58,17 @@ update :: proc(ctx: ^RenderContext) -> bool {
         resize(ctx)
     }
 
-    result = draw(ctx, index)
+    perframe := &ctx.perframes[index]
 
+    vk_assert(draw(ctx, perframe))
+
+    submit_queue(perframe, ctx.queues[.GRAPHICS])
+
+    // If window is resized, result is non-success so need to handle manually.
     result = present_image(ctx, index)
     if result == .SUBOPTIMAL_KHR || result == .ERROR_OUT_OF_DATE_KHR {
         resize(ctx)
-    }
+    } else do vk_assert(result)
 
     if ctx.window_needs_resize do resize(ctx)
 
@@ -112,52 +117,37 @@ acquire_image :: proc(using this: ^RenderContext, image: ^u32) -> vk.Result {
 
     perframes[image^].image_available = semaphore
 
-    return .SUCCESS
-}
-
-draw :: proc(this: ^RenderContext, index: u32) -> vk.Result {
-    g_time += 1
-
-    cmd := this.perframes[index].command_buffer
+    cmd := perframes[image^].command_buffer
 
     begin_info := vk.CommandBufferBeginInfo {
         sType = .COMMAND_BUFFER_BEGIN_INFO,
-        flags = {.ONE_TIME_SUBMIT},
+        flags = { .ONE_TIME_SUBMIT },
     }
 
-    vk.BeginCommandBuffer(cmd, &begin_info) or_return
+    vk_assert(vk.BeginCommandBuffer(cmd, &begin_info))
 
-    clear_values := []vk.ClearValue {
-        { color = { float32 = [4]f32{ 0.01, 0.01, 0.01, 1.0 }}},
-        { depthStencil = { depth = 1 }},
-    }
+    return .SUCCESS
+}
 
-    rp_begin: vk.RenderPassBeginInfo = {
-        sType = .RENDER_PASS_BEGIN_INFO,
-        renderPass = this.render_pass,
-        framebuffer = this.framebuffers[index],
-        renderArea = {extent = this.swapchain.extent},
-        clearValueCount = u32(len(clear_values)),
-        pClearValues = raw_data(clear_values),
-    }
+draw :: proc(this: ^RenderContext, perframe: ^Perframe) -> vk.Result {
+    g_time += 1
 
-    vk.CmdBeginRenderPass(cmd, &rp_begin, vk.SubpassContents.INLINE)
+    cmd := perframe.command_buffer
+    index := perframe.index
 
-    viewport: vk.Viewport = {
-        width    = f32(this.swapchain.extent.width),
-        height   = f32(this.swapchain.extent.height),
-        minDepth = 0, maxDepth = 1,
-    }
-    vk.CmdSetViewport(cmd, 0, 1, &viewport)
+    scene_prepare(&this.scene, index)
 
-    scissor: vk.Rect2D = { extent = this.swapchain.extent }
-    vk.CmdSetScissor(cmd, 0, 1, &scissor)
+    shadow_exec_shadow_pass(&this.scene, perframe, this.passes[.SHADOW])
 
-    scene_render(&this.scene, &this.perframes[index])
-    
-    vk.CmdEndRenderPass(cmd)
+    scene_do_forward_pass(&this.scene, perframe, this.passes[.FORWARD])
 
-    vk.EndCommandBuffer(cmd) or_return
+    return .SUCCESS
+}
+
+submit_queue :: proc(perframe: ^Perframe, queue: vk.Queue) {
+    cmd := perframe.command_buffer
+
+    vk.EndCommandBuffer(cmd)
 
     wait_stage: vk.PipelineStageFlags = { .COLOR_ATTACHMENT_OUTPUT }
 
@@ -166,14 +156,13 @@ draw :: proc(this: ^RenderContext, index: u32) -> vk.Result {
         commandBufferCount   = 1,
         pCommandBuffers      = &cmd,
         waitSemaphoreCount   = 1,
-        pWaitSemaphores      = &this.perframes[index].image_available.semaphore,
+        pWaitSemaphores      = &perframe.image_available.semaphore,
         pWaitDstStageMask    = &wait_stage,
         signalSemaphoreCount = 1,
-        pSignalSemaphores    = &this.perframes[index].render_finished,
+        pSignalSemaphores    = &perframe.render_finished,
     }
 
-    vk.QueueSubmit(this.queues[.GRAPHICS], 1, &submit_info, this.perframes[index].in_flight_fence)
-    return .SUCCESS
+    vk.QueueSubmit(queue, 1, &submit_info, perframe.in_flight_fence)
 }
 
 present_image :: proc(using ctx: ^RenderContext, index: u32) -> vk.Result {
@@ -211,7 +200,7 @@ resize :: proc(this: ^RenderContext) -> bool {
                                       this.swapchain.handle)
 
     this.framebuffers = swapchain_create_framebuffers(this.device,
-                                                      this.render_pass,
+                                                      this.passes[.FORWARD].pass,
                                                       this.swapchain,
                                                       this.depth_image)
 
@@ -245,20 +234,6 @@ init :: proc(this: ^RenderContext) {
 
     this.device, this.queues = device_create(this.gpu, this.queue_indices)
 
-    this.swapchain = swapchain_create(this.device,
-                                      this.gpu, 
-                                      this.surface, 
-                                      this.queue_indices)
-
-    this.render_pass = builders.create_render_pass(this.device,
-                                                   this.swapchain.format.format) 
-
-    this.perframes = create_perframes(this.device, len(this.swapchain.images))
-
-    this.descriptor_pool = descriptors_create_pool(this.device, 1000) 
-
-    this.semaphore_pool, this.semaphore_list = create_sync_objects(this.device, int(this.swapchain.image_count) + 1)
-
     buffers_init({
         physicalDevice = this.gpu,
         instance = this.instance,
@@ -267,23 +242,33 @@ init :: proc(this: ^RenderContext) {
     },  this.queues[.TRANSFER], 
         this.gpu_properties)
 
-    this.stage = buffers_create_staging(this.device, this.queues[.TRANSFER])
+    this.swapchain = swapchain_create(this.device,
+                                      this.gpu, 
+                                      this.surface, 
+                                      this.queue_indices)
 
-    mats_init(&this.mat_cache)
-
-    scene_init(&this.scene, this)
     
     extent := vk.Extent3D {
         this.swapchain.extent.width, 
         this.swapchain.extent.height,
         1,
     }
-    this.depth_image = buffers_create_image(this.device, extent)
 
-    this.framebuffers = swapchain_create_framebuffers(this.device,
-                                                      this.render_pass,
-                                                      this.swapchain,
-                                                      this.depth_image)
+    this.passes[.FORWARD] = create_forward_pass(this)
+    this.passes[.SHADOW] = shadow_create_render_pass(this.device, len(this.swapchain.images), extent)
+
+    this.perframes = create_perframes(this.device, len(this.swapchain.images))
+
+    this.descriptor_pool = descriptors_create_pool(this.device, 1000) 
+
+    this.semaphore_pool, this.semaphore_list = create_sync_objects(this.device, int(this.swapchain.image_count) + 1)
+
+
+    this.stage = buffers_create_staging(this.device, this.queues[.TRANSFER])
+
+    mats_init(&this.mat_cache)
+
+    scene_init(&this.scene, this)
 }
 
 init_window :: proc(this: ^RenderContext) -> glfw.WindowHandle {
@@ -307,13 +292,61 @@ init_window :: proc(this: ^RenderContext) -> glfw.WindowHandle {
     return window;
 }
 
+create_forward_pass :: proc(ctx: ^RenderContext) -> (pass: PassInfo) {
+    color_attachment, color_ref := builders.create_color_attachment(0, ctx.swapchain.format.format)
+    depth_attachment, depth_ref := builders.create_depth_attachment(1)
+
+    subpass := vk.SubpassDescription {
+        pipelineBindPoint       = .GRAPHICS,
+        colorAttachmentCount    = 1,
+        pColorAttachments       = &color_ref,
+        pDepthStencilAttachment = &depth_ref,
+    }
+
+    dependency := vk.SubpassDependency {
+        srcSubpass    = vk.SUBPASS_EXTERNAL,
+        dstSubpass    = .0,
+        srcStageMask  = { .COLOR_ATTACHMENT_OUTPUT },
+        srcAccessMask = { },
+        dstStageMask  = { .COLOR_ATTACHMENT_OUTPUT },
+        dstAccessMask = { .COLOR_ATTACHMENT_READ, .COLOR_ATTACHMENT_WRITE },
+    }
+    
+    depth_dependency := vk.SubpassDependency {
+        srcSubpass    = vk.SUBPASS_EXTERNAL,
+        dstSubpass    = .0,
+        srcStageMask  = { .EARLY_FRAGMENT_TESTS, .LATE_FRAGMENT_TESTS },
+        srcAccessMask = {},
+        dstStageMask  = { .EARLY_FRAGMENT_TESTS, .LATE_FRAGMENT_TESTS },
+        dstAccessMask = { .DEPTH_STENCIL_ATTACHMENT_WRITE },
+    }
+
+    subpasses := []vk.SubpassDescription { subpass }
+    attachments := []vk.AttachmentDescription { color_attachment, depth_attachment }
+    dependencies := []vk.SubpassDependency { dependency, depth_dependency }
+
+    pass.pass = builders.create_render_pass(ctx.device, attachments, subpasses, dependencies) 
+
+    extent := vk.Extent3D { ctx.swapchain.extent.width, ctx.swapchain.extent.height, 1 }
+    count := ctx.swapchain.image_count
+
+    ctx.depth_image = buffers_create_image(ctx.device, extent)
+
+    pass.images = ctx.swapchain.images
+    pass.framebuffers = swapchain_create_framebuffers(ctx.device, pass.pass, ctx.swapchain, ctx.depth_image) 
+    pass.extent = extent
+
+    return pass
+}
+
+
 create_perframes :: proc(device: vk.Device, count: int) ->
 (perframes: []Perframe) {
     perframes = make([]Perframe, count)
 
     for _, i in perframes {
         p := &perframes[i]
-        p.index = uint(i)
+        p.index = i
         p.image_available = nil
         p.render_finished = builders.create_semaphore(device)
         p.in_flight_fence = builders.create_fence(device, { .SIGNALED })
@@ -345,11 +378,13 @@ cleanup :: proc(this: ^RenderContext) {
 
     vk.DestroyDescriptorPool(this.device, this.descriptor_pool, nil)
 
-    swapchain_destroy_framebuffers(this.device, this.framebuffers)
+    cleanup_render_pass(this.device, this.passes[.SHADOW])
 
-    vk.DestroyRenderPass(this.device, this.render_pass, nil)
+    // Forward pass is cleaned up by swapchain functions
 
     buffers_destroy(this.device, this.depth_image)
+
+    swapchain_destroy_framebuffers(this.device, this.framebuffers)
 
     swapchain_destroy(this.device, this.swapchain)
 
@@ -366,6 +401,20 @@ cleanup :: proc(this: ^RenderContext) {
 
     glfw.DestroyWindow(this.window)
     glfw.Terminate()
+}
+
+cleanup_render_pass :: proc(device: vk.Device, pass: PassInfo) {
+    vk.DestroyRenderPass(device, pass.pass, nil)
+
+    for image in pass.images {
+        buffers_destroy(device, image)
+    }
+    delete(pass.images)
+
+    for framebuffer in pass.framebuffers {
+        vk.DestroyFramebuffer(device, framebuffer, nil) 
+    }
+    delete(pass.framebuffers)
 }
 
 cleanup_perframes :: proc(using ctx: ^RenderContext) {

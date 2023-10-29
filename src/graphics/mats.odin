@@ -5,6 +5,7 @@ import "core:log"
 import "core:os"
 import "core:mem"
 
+import la "core:math/linalg"
 import vk "vendor:vulkan"
 
 import "builders"
@@ -20,6 +21,11 @@ MaterialCache :: struct {
 ShaderFile :: struct {
     path: string,
     stage: vk.ShaderStageFlag
+}
+
+ShaderStage :: struct{
+    module:  vk.ShaderModule,
+    stage:   vk.ShaderStageFlag,
 }
 
 ShaderEffect :: struct {
@@ -140,8 +146,8 @@ mats_create :: proc(ctx: ^RenderContext,
         if pass.effect == nil do continue
         mat.passes[pass.type] = pass.effect
         mat.descriptors[pass.type] = builders.allocate_descriptor_set(ctx.device, ctx.descriptor_pool, pass.effect.desc_layouts[:])
-        mat.uniforms = buffers_create(MATERIAL_UNIFORM_BUFFER_SIZE, .UNIFORM_DYNAMIC)
     }
+    mat.uniforms = buffers_create(MATERIAL_UNIFORM_BUFFER_SIZE, .UNIFORM_DYNAMIC)
 
     ctx.mat_cache.materials[name] = mat
 
