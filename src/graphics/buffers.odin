@@ -194,6 +194,29 @@ buffers_create_image :: proc(device: vk.Device, extent: vk.Extent3D) ->
     return image
 }
 
+buffers_create_sampler :: proc(device: vk.Device, maxAnis: f32) -> (sampler: vk.Sampler){
+	info := vk.SamplerCreateInfo{
+		sType = .SAMPLER_CREATE_INFO,
+		magFilter = .LINEAR,
+		minFilter = .LINEAR,
+		addressModeU = .REPEAT,
+		addressModeV = .REPEAT,
+		addressModeW = .REPEAT,
+		anisotropyEnable = true,
+		maxAnisotropy = maxAnis,
+		borderColor = .INT_OPAQUE_BLACK,
+		unnormalizedCoordinates = false,
+		compareEnable = false,
+		compareOp = .ALWAYS,
+		mipmapMode = .LINEAR,
+		mipLodBias = 0.0,
+		minLod = 0.0,
+		maxLod = 0.0,
+	}
+	vk_assert(vk.CreateSampler(device, &info, nil, &sampler))
+	return
+}
+
 buffers_create_dubo :: proc($T: typeid,
                             count: int) ->
 (buffer: TBuffer(T)) {

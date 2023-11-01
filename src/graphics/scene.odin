@@ -30,6 +30,7 @@ Scene :: struct {
     camera_buffer:   TBuffer(Camera),
     lights_buffer:   TBuffer(Light),
     shadows_buffer:  TBuffer(Shadow),
+	shadows_sampler: vk.Sampler,
 
     cube_vertex:     Buffer,
     cube_index:      Buffer,
@@ -82,7 +83,7 @@ scene_init :: proc(scene:  ^Scene,
 
     scene.camera_buffer = scene_setup_cameras(num_frames, ctx.swapchain.extent)
     scene.lights_buffer = scene_setup_lights(num_frames)
-    scene.shadows_buffer = scene_setup_shadows(num_frames)
+    scene.shadows_buffer = scene_setup_shadows(scene, num_frames)
 
     scene.object_ubos = buffers_create_dubo(mat4, OBJECT_COUNT * num_frames)
 
@@ -125,8 +126,8 @@ scene_init :: proc(scene:  ^Scene,
                                                 ctx.passes[.FORWARD].pass,
                                                 "default_diffuse_effect",
                                                 .DIFFUSE,
-                                                {{ "assets/shaders/diffuse.vert.spv", .VERTEX },
-                                                { "assets/shaders/diffuse.frag.spv", .FRAGMENT }})
+                                                {{ "assets/shaders/diffuse_shadows.vert.spv", .VERTEX },
+                                                { "assets/shaders/diffuse_shadows.frag.spv", .FRAGMENT }})
 
     diffuse := mats_create(ctx, "default_diffuse", {
         { .FORWARD, diffuse_effect },
@@ -200,26 +201,34 @@ scene_setup_lights :: proc(frame_count: int) -> (lights: TBuffer(Light)) {
     return lights
 }
 
-scene_setup_shadows :: proc(frame_count: int) -> (shadows: TBuffer(Shadow)) {
+scene_setup_shadows :: proc(scene: ^Scene, frame_count: int) -> (shadows: TBuffer(Shadow)) {
     shadows = buffers_create_dubo(Shadow, frame_count)
+	scene.shadows_sampler = buffers_create_sampler(scene.device, 1.0)
 
     shadow := Shadow {
         view = la.matrix4_look_at(
-            vec3{0, 2, 0},
+            vec3{0, -1, 0},
             vec3{0, 0, 0},
             vec3{0, 0, -1},
         ),
-        proj = la.matrix_ortho3d_f32(-5, 5, -5, 5, 0.1, 5),
+        proj = la.matrix_ortho3d_f32(-2, 2, -2, 2, -2, 0),
     }
-    for i in 0..<frame_count do buffers_write_tbuffer(shadows, &shadow, i)
+    for i in 0..<frame_count { 
+		buffers_write_tbuffer(shadows, &shadow, i) 
+	}
 
     return shadows 
 }
 
 // Update all per-frame buffers and descriptors.
-scene_prepare :: proc(scene: ^Scene, frame_num: int) {
+scene_prepare :: proc(scene: ^Scene, shadow_image_view: ^vk.ImageView, frame_num: int) {
     object_data : [OBJECT_COUNT]mat4
-    for i in 0..<OBJECT_COUNT do object_data[i] = scene.offsets(i, scene.time, scene.model[i])
+    for i in 0..<OBJECT_COUNT { 
+		object_data[i] = scene.offsets(i, scene.time, scene.model[i])
+		builders.bind_image_to_set(scene.device,
+									{ scene.shadows_sampler, shadow_image_view^, .READ_ONLY_OPTIMAL },
+									scene.materials[i].descriptors[.FORWARD][0], 2)
+	}
 
     buffers_write(scene.object_ubos,
                   &object_data,
@@ -238,6 +247,8 @@ scene_do_forward_pass :: proc(scene: ^Scene, perframe: ^Perframe, pass: PassInfo
     index := perframe.index
     cmd   := perframe.command_buffer
     extent := vk.Extent2D { pass.extent.width, pass.extent.height }
+
+	// Update descriptor set to add image[frame] + sampler
 
     rp_begin: vk.RenderPassBeginInfo = {
         sType = .RENDER_PASS_BEGIN_INFO,
@@ -282,7 +293,7 @@ scene_render_object :: proc(scene: ^Scene,
     // BIND GLOBAL DATA
     if last_material^ == nil {
         offset := size_of(Camera) * u32(frame_num)
-        mats_bind_descriptor(cmd, material, .FORWARD, 0, { offset })
+        mats_bind_descriptor(cmd, material, .FORWARD, 0, { offset, 0 })
     }
 
     // BIND PER MATERIAL DATA
@@ -315,6 +326,12 @@ scene_bind_descriptors :: proc(this: ^Scene, material: ^Material) {
                                  .UNIFORM_BUFFER, 
                                  material.descriptors[.FORWARD][0], 1)
 
+	// Shadow pass ubo
+    builders.bind_descriptor_set(this.device,
+                                 { this.shadows_buffer.handle, 0, size_of(Shadow) },
+                                 .UNIFORM_BUFFER_DYNAMIC, 
+                                 material.descriptors[.FORWARD][0], 3)
+	
     builders.bind_descriptor_set(this.device,
                                  { material.uniforms.handle, 0, MATERIAL_UNIFORM_BUFFER_SIZE },
                                  .UNIFORM_BUFFER_DYNAMIC, 

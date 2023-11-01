@@ -38,6 +38,25 @@ bind_descriptor_set :: proc (device: vk.Device,
     vk.UpdateDescriptorSets(device, 1, &write, 0, nil)
 }
 
+bind_image_to_set :: proc(device: vk.Device,
+                             info: vk.DescriptorImageInfo, 
+                             set: vk.DescriptorSet,
+                             binding: int){
+    info := info
+
+    write := vk.WriteDescriptorSet {
+        sType = .WRITE_DESCRIPTOR_SET,
+        dstSet = set,
+        dstBinding = u32(binding),
+        descriptorCount = 1,
+        descriptorType = .COMBINED_IMAGE_SAMPLER,
+        pImageInfo = &info,
+    }
+
+    vk.UpdateDescriptorSets(device, 1, &write, 0, nil)
+
+}
+
 create_descriptor_set_layout :: proc(device: vk.Device, bindings: []vk.DescriptorSetLayoutBinding) ->
 (layout: vk.DescriptorSetLayout) {
     info := vk.DescriptorSetLayoutCreateInfo {

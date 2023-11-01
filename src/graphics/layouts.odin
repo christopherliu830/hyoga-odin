@@ -58,13 +58,19 @@ RESOURCE_COLOR :: ShaderResource {
     size        = size_of(vec4),
 }
 
+RESOURCE_IMAGE_SAMPLER :: ShaderResource{
+    name        = "_image_sampler",
+    type        = .COMBINED_IMAGE_SAMPLER,
+    stages      = { .FRAGMENT },
+}
+
 ShaderLayouts :: [LayoutType][len(DescriptorNumber)][]ShaderResource {
     .DEFAULT = {
         0 = { RESOURCE_CAMERA, RESOURCE_LIGHTS },
         3 = { RESOURCE_OBJECT },
     },
     .DIFFUSE = {
-        0 = { RESOURCE_CAMERA, RESOURCE_LIGHTS },
+        0 = { RESOURCE_CAMERA, RESOURCE_LIGHTS, RESOURCE_IMAGE_SAMPLER, RESOURCE_CAMERA },
         2 = { RESOURCE_COLOR },
         3 = { RESOURCE_OBJECT },
     },

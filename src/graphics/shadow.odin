@@ -16,6 +16,7 @@ shadow_create_render_pass :: proc(device:       vk.Device,
                                   extent:       vk.Extent3D) ->
 (pass: PassInfo) {
     attachment, ref := builders.create_depth_attachment(0)
+	attachment.finalLayout = .READ_ONLY_OPTIMAL;
     
     subpass := vk.SubpassDescription {
         pipelineBindPoint       = .GRAPHICS,
@@ -31,8 +32,17 @@ shadow_create_render_pass :: proc(device:       vk.Device,
         dstStageMask  = { .EARLY_FRAGMENT_TESTS, .LATE_FRAGMENT_TESTS },
         dstAccessMask = { .DEPTH_STENCIL_ATTACHMENT_WRITE },
     }
+    
+	dependency_transition := vk.SubpassDependency {
+        srcSubpass    = .0,
+        dstSubpass    = vk.SUBPASS_EXTERNAL,
+        srcStageMask  = { .EARLY_FRAGMENT_TESTS, .LATE_FRAGMENT_TESTS },
+        srcAccessMask = { .DEPTH_STENCIL_ATTACHMENT_WRITE },
+        dstStageMask  = { .EARLY_FRAGMENT_TESTS, .LATE_FRAGMENT_TESTS },
+        dstAccessMask = { .SHADER_READ },
+    }
 
-    pass.pass = builders.create_render_pass(device, { attachment }, { subpass }, { dependency })
+    pass.pass = builders.create_render_pass(device, { attachment }, { subpass }, { dependency, dependency_transition })
     pass.images = make([]Image, image_count)
     pass.framebuffers = make([]vk.Framebuffer, image_count)
     pass.extent = extent
@@ -111,4 +121,14 @@ shadow_exec_shadow_pass :: proc(scene: ^Scene, perframe: ^Perframe, pass: PassIn
     for i in 0..<OBJECT_COUNT do shadow_draw_object(scene, cmd, perframe.index, i, &last_material)
 
     vk.CmdEndRenderPass(cmd)
+
+	// Sync not the problem?
+	/*
+	barrier := vk.MemoryBarrier{
+		sType = .MEMORY_BARRIER,
+		srcAccessMask = { .DEPTH_STENCIL_ATTACHMENT_WRITE },
+		dstAccessMask = { .SHADER_READ },
+	}
+	vk.CmdPipelineBarrier(cmd, {.TOP_OF_PIPE}, {.BOTTOM_OF_PIPE}, {}, 1, &barrier, 0, nil, 0, nil )
+	*/
 }

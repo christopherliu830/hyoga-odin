@@ -13,7 +13,5 @@ layout(location = 0) in vec3 position;
 
 void main()
 {
-    vec4 pos = vec4(position.x, position.y, position.z, 1.0);
-    vec4 world_pos = _model.model * pos;
-    gl_Position = _view.proj * _view.view * world_pos;
+    gl_Position = _view.proj * _view.view * _model.model * vec4(position, 1.0);
 }

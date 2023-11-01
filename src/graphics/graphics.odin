@@ -31,6 +31,7 @@ RenderContext :: struct {
     perframes:            []Perframe,
     semaphore_pool:       []SemaphoreLink,
     semaphore_list:       list.List,
+	// Are frame buffers needed in render context if all passes have their own?
     framebuffers:         []vk.Framebuffer,
     depth_image:          Image,
 
@@ -135,7 +136,7 @@ draw :: proc(this: ^RenderContext, perframe: ^Perframe) -> vk.Result {
     cmd := perframe.command_buffer
     index := perframe.index
 
-    scene_prepare(&this.scene, index)
+    scene_prepare(&this.scene, &this.passes[.SHADOW].images[index].view, index)
 
     shadow_exec_shadow_pass(&this.scene, perframe, this.passes[.SHADOW])
 
@@ -254,8 +255,14 @@ init :: proc(this: ^RenderContext) {
         1,
     }
 
+	shadow_extent := vk.Extent3D {
+		512,
+		512,
+		1,
+	}
+
     this.passes[.FORWARD] = create_forward_pass(this)
-    this.passes[.SHADOW] = shadow_create_render_pass(this.device, len(this.swapchain.images), extent)
+    this.passes[.SHADOW] = shadow_create_render_pass(this.device, len(this.swapchain.images), shadow_extent)
 
     this.perframes = create_perframes(this.device, len(this.swapchain.images))
 
