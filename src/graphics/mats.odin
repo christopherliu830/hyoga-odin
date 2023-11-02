@@ -123,7 +123,9 @@ mats_create_shader_effect :: proc(ctx:          ^RenderContext,
         }
     }
 
-    vertex_input := builders.get_vertex_input(BINDINGS, ATTRIBUTES)
+    bindings := VERTEX_BINDINGS
+    attributes := VERTEX_ATTRIBUTES
+    vertex_input := builders.get_vertex_input(bindings[type], attributes[type])
 
     effect.pipeline = builders.create_pipeline(device,
                                                layout = effect.pipeline_layout,

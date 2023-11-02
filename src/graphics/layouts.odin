@@ -26,6 +26,18 @@ ShaderResource :: struct {
     size:         int,
 }
 
+VERTEX_BINDINGS :: [LayoutType][]vk.VertexInputBindingDescription {
+    .DEFAULT = BINDINGS,
+    .DIFFUSE = BINDINGS,
+    .SHADOW  = {{ 0, size_of(Vertex), .VERTEX }},
+}
+
+VERTEX_ATTRIBUTES :: [LayoutType][]vk.VertexInputAttributeDescription {
+    .DEFAULT = ATTRIBUTES,
+    .DIFFUSE = ATTRIBUTES,
+    .SHADOW = {{ 0, 0, .R32G32B32_SFLOAT, 0 }},
+}
+
 RESOURCE_CAMERA :: ShaderResource {
     name        = "_camera",
     type        = .UNIFORM_BUFFER_DYNAMIC,
