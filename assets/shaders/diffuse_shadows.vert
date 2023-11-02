@@ -27,7 +27,7 @@ layout(location = 3) in vec3 uv;
 
 layout(location = 0) out vec3 fragNormal;
 layout(location = 1) out vec3 fragLightDir;
-layout(location = 2) out vec3 fragShadowCoords;
+layout(location = 2) out vec4 fragShadowCoords;
 
 void main() {
     mat4 mv = _camera.view * _object.model;
@@ -37,10 +37,6 @@ void main() {
     // Interpolated values
     fragNormal = mat3(transpose(inverse(_object.model))) * normal;
     fragLightDir = _light.direction.xyz;
-	vec4 shadowCoords = _shadows.proj * _shadows.view * _object.model * vec4(position, 1.0);
-	fragShadowCoords.x = 0.5 * shadowCoords.x + 0.5;
-	fragShadowCoords.y = 0.5 * shadowCoords.y + 0.5;
-	fragShadowCoords.z = shadowCoords.z;
-	//fragShadowCoords = _shadows.proj * _shadows.view * _object.model * vec4(position, 1.0);
+	fragShadowCoords = _shadows.proj * _shadows.view * _object.model * vec4(position, 1.0);
 }
 

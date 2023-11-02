@@ -11,9 +11,11 @@ Shadow :: struct {
     proj: mat4,
 }
 
+SHADOW_MAP_WIDTH :: 1024
+SHADOW_MAP_HEIGHT :: 1024
+
 shadow_create_render_pass :: proc(device:       vk.Device,
-                                  image_count:  int,
-                                  extent:       vk.Extent3D) ->
+                                  image_count:  int) ->
 (pass: PassInfo) {
     attachment, ref := builders.create_depth_attachment(0)
 	attachment.finalLayout = .READ_ONLY_OPTIMAL;
@@ -32,6 +34,8 @@ shadow_create_render_pass :: proc(device:       vk.Device,
         dstStageMask  = { .EARLY_FRAGMENT_TESTS, .LATE_FRAGMENT_TESTS },
         dstAccessMask = { .DEPTH_STENCIL_ATTACHMENT_WRITE },
     }
+
+    extent := vk.Extent3D { SHADOW_MAP_WIDTH, SHADOW_MAP_HEIGHT, 1 }
     
     pass.pass = builders.create_render_pass(device, { attachment }, { subpass }, { dependency })
     pass.images = make([]Image, image_count)
@@ -39,7 +43,7 @@ shadow_create_render_pass :: proc(device:       vk.Device,
     pass.extent = extent
 
     for i in 0..<image_count {
-        pass.images[i] = buffers_create_image(device, extent)
+        pass.images[i] = buffers_create_image(device, extent, { .SAMPLED, .DEPTH_STENCIL_ATTACHMENT })
         pass.framebuffers[i] = builders.create_framebuffer(device, pass.pass, { pass.images[i].view }, extent)
     }
 
@@ -106,20 +110,9 @@ shadow_exec_shadow_pass :: proc(scene: ^Scene, perframe: ^Perframe, pass: PassIn
     scissor: vk.Rect2D = { extent = extent }
     vk.CmdSetScissor(cmd, 0, 1, &scissor)
 
-    offset := size_of(Shadow) * u32(index)
-
     last_material: ^Material = nil
     for i in 0..<OBJECT_COUNT do shadow_draw_object(scene, cmd, perframe.index, i, &last_material)
 
     vk.CmdEndRenderPass(cmd)
-
-	// Sync not the problem?
-	/*
-	barrier := vk.MemoryBarrier{
-		sType = .MEMORY_BARRIER,
-		srcAccessMask = { .DEPTH_STENCIL_ATTACHMENT_WRITE },
-		dstAccessMask = { .SHADER_READ },
-	}
-	vk.CmdPipelineBarrier(cmd, {.TOP_OF_PIPE}, {.BOTTOM_OF_PIPE}, {}, 1, &barrier, 0, nil, 0, nil )
-	*/
 }
+

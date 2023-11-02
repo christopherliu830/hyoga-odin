@@ -13,32 +13,22 @@ layout(set = 2, binding = 0) uniform MaterialBuffer {
 
 layout(location = 0) in vec3 fragNormal;
 layout(location = 1) in vec3 fragLightDir;
-layout(location = 2) in vec3 fragShadowCoords;
+layout(location = 2) in vec4 fragShadowCoords;
 
 layout(location = 0) out vec4 outColor;
 
-float calcShadowFactor(){
-	// perspective divide
-	/*
-	//float deno = 1.0 / fragShadowCoords.w;
-	//vec3 proj_coords = fragShadowCoords.xyz * deno;
-	vec3 proj_coords = fragShadowCoords;
-	vec2 shadow_uv;	
-	shadow_uv.x = 0.5 * proj_coords.x + 0.5;
-	shadow_uv.y = 0.5 * proj_coords.y + 0.5;
-	float z = 0.5 * proj_coords.z + 0.5;
-	float depth = texture(_shadow_map, shadow_uv).x;
-	*/
-	float z = fragShadowCoords.z;
-	float depth = texture(_shadow_map, fragShadowCoords.xy).x;
-	if(depth < (z + 0.00001))
-		return 0.5;
-	else
-		return 1.0;
+float calc_shadow_factor() {
+    // perspective divide 
+    vec3 coords = fragShadowCoords.xyz / fragShadowCoords.w;
+
+    coords = coords * 0.5 + 0.5;
+    float bias = 0.005;
+	float depth = texture(_shadow_map, coords.xy).r + bias;
+    return step(fragShadowCoords.z, depth);
 }
 
 void main() {
-	float shadow_factor = calcShadowFactor();
+	float shadow_factor = calc_shadow_factor();
     vec3 normal = normalize(fragNormal);
     vec3 lightDir = normalize(-fragLightDir);
 
