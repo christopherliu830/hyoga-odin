@@ -33,9 +33,15 @@ create_device :: proc(gpu: vk.PhysicalDevice,
                       queues: []vk.DeviceQueueCreateInfo,
                       extensions: []cstring = {},
                       layers: []cstring = {}) ->
-(device: vk.Device) {
-    shader_features: vk.PhysicalDeviceShaderDrawParametersFeatures = {
+(device: vk.Device) {   
+	physical_features: vk.PhysicalDeviceVulkan13Features = {
+		sType = .PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+		pNext = nil,
+		synchronization2 = true,
+	}
+	shader_features: vk.PhysicalDeviceShaderDrawParametersFeatures = {
         sType                = .PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES,
+		pNext				 = &physical_features,
         shaderDrawParameters = true,
     }
 

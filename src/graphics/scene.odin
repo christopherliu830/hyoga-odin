@@ -211,7 +211,7 @@ scene_setup_shadows :: proc(scene: ^Scene, frame_count: int) -> (shadows: TBuffe
             vec3{0, 0, 0},
             vec3{0, 0, -1},
         ),
-        proj = la.matrix_ortho3d_f32(-2, 2, -2, 2, -2, 0),
+        proj = la.matrix_ortho3d_f32(-2, 2, -2, 2, -10, 10),
     }
     for i in 0..<frame_count { 
 		buffers_write_tbuffer(shadows, &shadow, i) 

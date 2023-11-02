@@ -202,7 +202,7 @@ buffers_create_sampler :: proc(device: vk.Device, maxAnis: f32) -> (sampler: vk.
 		addressModeU = .REPEAT,
 		addressModeV = .REPEAT,
 		addressModeW = .REPEAT,
-		anisotropyEnable = true,
+		anisotropyEnable = false,
 		maxAnisotropy = maxAnis,
 		borderColor = .INT_OPAQUE_BLACK,
 		unnormalizedCoordinates = false,

@@ -33,16 +33,7 @@ shadow_create_render_pass :: proc(device:       vk.Device,
         dstAccessMask = { .DEPTH_STENCIL_ATTACHMENT_WRITE },
     }
     
-	dependency_transition := vk.SubpassDependency {
-        srcSubpass    = .0,
-        dstSubpass    = vk.SUBPASS_EXTERNAL,
-        srcStageMask  = { .EARLY_FRAGMENT_TESTS, .LATE_FRAGMENT_TESTS },
-        srcAccessMask = { .DEPTH_STENCIL_ATTACHMENT_WRITE },
-        dstStageMask  = { .EARLY_FRAGMENT_TESTS, .LATE_FRAGMENT_TESTS },
-        dstAccessMask = { .SHADER_READ },
-    }
-
-    pass.pass = builders.create_render_pass(device, { attachment }, { subpass }, { dependency, dependency_transition })
+    pass.pass = builders.create_render_pass(device, { attachment }, { subpass }, { dependency })
     pass.images = make([]Image, image_count)
     pass.framebuffers = make([]vk.Framebuffer, image_count)
     pass.extent = extent
