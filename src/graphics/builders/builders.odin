@@ -33,9 +33,16 @@ create_device :: proc(gpu: vk.PhysicalDevice,
                       queues: []vk.DeviceQueueCreateInfo,
                       extensions: []cstring = {},
                       layers: []cstring = {}) ->
-(device: vk.Device) {
-    shader_features: vk.PhysicalDeviceShaderDrawParametersFeatures = {
+(device: vk.Device) {   
+	physical_features: vk.PhysicalDeviceVulkan13Features = {
+		sType = .PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+		pNext = nil,
+		synchronization2 = true,
+	}
+
+	shader_features: vk.PhysicalDeviceShaderDrawParametersFeatures = {
         sType                = .PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES,
+		pNext				 = &physical_features,
         shaderDrawParameters = true,
     }
 
@@ -108,6 +115,31 @@ create_instance :: proc(extensions: []cstring, layers: []cstring = nil) ->
 
     vk_assert(vk.CreateInstance(&info, nil, &instance))
     return instance
+}
+
+create_sampler :: proc(device: vk.Device, maxAnis: f32) -> 
+(sampler: vk.Sampler) {
+	info := vk.SamplerCreateInfo {
+		sType                   = .SAMPLER_CREATE_INFO,
+		magFilter               = .LINEAR,
+		minFilter               = .LINEAR,
+		addressModeU            = .CLAMP_TO_BORDER,
+		addressModeV            = .CLAMP_TO_BORDER,
+		addressModeW            = .CLAMP_TO_BORDER,
+		anisotropyEnable        = false,
+		maxAnisotropy           = maxAnis,
+		borderColor             = .INT_OPAQUE_WHITE,
+		unnormalizedCoordinates = false,
+		compareEnable           = false,
+		compareOp               = .ALWAYS,
+		mipmapMode              = .LINEAR,
+		mipLodBias              = 0.0,
+		minLod                  = 0.0,
+		maxLod                  = 0.0,
+	}
+
+	vk_assert(vk.CreateSampler(device, &info, nil, &sampler))
+	return
 }
 
 create_semaphore :: proc(device: vk.Device) -> (semaphore: vk.Semaphore) {

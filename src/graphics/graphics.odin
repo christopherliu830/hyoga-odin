@@ -31,7 +31,6 @@ RenderContext :: struct {
     perframes:            []Perframe,
     semaphore_pool:       []SemaphoreLink,
     semaphore_list:       list.List,
-    framebuffers:         []vk.Framebuffer,
     depth_image:          Image,
 
     scene:                Scene,
@@ -39,6 +38,8 @@ RenderContext :: struct {
     mat_cache:            MaterialCache,
 
     window_needs_resize:  bool,
+
+
 }
 
 WINDOW_HEIGHT :: 720
@@ -135,7 +136,7 @@ draw :: proc(this: ^RenderContext, perframe: ^Perframe) -> vk.Result {
     cmd := perframe.command_buffer
     index := perframe.index
 
-    scene_prepare(&this.scene, index)
+    scene_prepare(&this.scene, this, index)
 
     shadow_exec_shadow_pass(&this.scene, perframe, this.passes[.SHADOW])
 
@@ -191,7 +192,7 @@ resize :: proc(this: ^RenderContext) -> bool {
         glfw.WaitEvents()
     }
 
-    swapchain_destroy_framebuffers(this.device, this.framebuffers)
+    swapchain_destroy_framebuffers(this.device, this.passes[.FORWARD].framebuffers)
 
     this.swapchain = swapchain_create(this.device,
                                       this.gpu, 
@@ -199,7 +200,7 @@ resize :: proc(this: ^RenderContext) -> bool {
                                       this.queue_indices,
                                       this.swapchain.handle)
 
-    this.framebuffers = swapchain_create_framebuffers(this.device,
+    this.passes[.FORWARD].framebuffers = swapchain_create_framebuffers(this.device,
                                                       this.passes[.FORWARD].pass,
                                                       this.swapchain,
                                                       this.depth_image)
@@ -255,11 +256,13 @@ init :: proc(this: ^RenderContext) {
     }
 
     this.passes[.FORWARD] = create_forward_pass(this)
-    this.passes[.SHADOW] = shadow_create_render_pass(this.device, len(this.swapchain.images), extent)
+    this.passes[.SHADOW] = shadow_create_render_pass(this.device, len(this.swapchain.images))
 
     this.perframes = create_perframes(this.device, len(this.swapchain.images))
 
-    this.descriptor_pool = descriptors_create_pool(this.device, 1000) 
+    this.descriptor_pool = descriptors_create_pool(this.device, 1000).pool
+
+    descriptors_init(this.device)
 
     this.semaphore_pool, this.semaphore_list = create_sync_objects(this.device, int(this.swapchain.image_count) + 1)
 
@@ -330,7 +333,7 @@ create_forward_pass :: proc(ctx: ^RenderContext) -> (pass: PassInfo) {
     extent := vk.Extent3D { ctx.swapchain.extent.width, ctx.swapchain.extent.height, 1 }
     count := ctx.swapchain.image_count
 
-    ctx.depth_image = buffers_create_image(ctx.device, extent)
+    ctx.depth_image = buffers_create_image(ctx.device, extent, { .DEPTH_STENCIL_ATTACHMENT })
 
     pass.images = ctx.swapchain.images
     pass.framebuffers = swapchain_create_framebuffers(ctx.device, pass.pass, ctx.swapchain, ctx.depth_image) 
@@ -383,8 +386,6 @@ cleanup :: proc(this: ^RenderContext) {
     // Forward pass is cleaned up by swapchain functions
 
     buffers_destroy(this.device, this.depth_image)
-
-    swapchain_destroy_framebuffers(this.device, this.framebuffers)
 
     swapchain_destroy(this.device, this.swapchain)
 

@@ -16,6 +16,9 @@ MaterialCache :: struct {
 
     effects: map[string]ShaderEffect,
     materials: map[string]Material,
+
+    // Cache resource handles to descriptors that describe them.
+    descriptors: map[vk.NonDispatchableHandle]vk.DescriptorSet,
 }
 
 ShaderFile :: struct {
@@ -120,7 +123,9 @@ mats_create_shader_effect :: proc(ctx:          ^RenderContext,
         }
     }
 
-    vertex_input := builders.get_vertex_input(BINDINGS, ATTRIBUTES)
+    bindings := VERTEX_BINDINGS
+    attributes := VERTEX_ATTRIBUTES
+    vertex_input := builders.get_vertex_input(bindings[type], attributes[type])
 
     effect.pipeline = builders.create_pipeline(device,
                                                layout = effect.pipeline_layout,
@@ -145,8 +150,9 @@ mats_create :: proc(ctx: ^RenderContext,
     for pass in passes {
         if pass.effect == nil do continue
         mat.passes[pass.type] = pass.effect
-        mat.descriptors[pass.type] = builders.allocate_descriptor_set(ctx.device, ctx.descriptor_pool, pass.effect.desc_layouts[:])
+        mat.descriptors[pass.type], _ = builders.allocate_descriptor_set(ctx.device, ctx.descriptor_pool, pass.effect.desc_layouts[:])
     }
+
     mat.uniforms = buffers_create(MATERIAL_UNIFORM_BUFFER_SIZE, .UNIFORM_DYNAMIC)
 
     ctx.mat_cache.materials[name] = mat

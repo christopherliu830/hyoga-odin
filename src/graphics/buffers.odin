@@ -147,7 +147,7 @@ buffers_create_by_flags :: proc(size:      int,
     return buffer
 }
 
-buffers_create_image :: proc(device: vk.Device, extent: vk.Extent3D) ->
+buffers_create_image :: proc(device: vk.Device, extent: vk.Extent3D, usage: vk.ImageUsageFlags) ->
 (image: Image) {
     image_info := vk.ImageCreateInfo {
         sType       = .IMAGE_CREATE_INFO,
@@ -158,7 +158,7 @@ buffers_create_image :: proc(device: vk.Device, extent: vk.Extent3D) ->
         arrayLayers = 1,
         samples     = { ._1 },
         tiling      = .OPTIMAL,
-        usage       = { .DEPTH_STENCIL_ATTACHMENT },
+        usage       = usage,
     }
     
     alloc_info := vma.AllocationCreateInfo {

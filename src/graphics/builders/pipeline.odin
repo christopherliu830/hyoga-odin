@@ -7,7 +7,7 @@ import vk "vendor:vulkan"
 create_pipeline :: proc(device:           vk.Device,
                         layout:           vk.PipelineLayout,
                         stages:           []vk.PipelineShaderStageCreateInfo = nil,
-                        vertex_input:     ^vk.PipelineVertexInputStateCreateInfo = nil,
+                        vertex_input:     ^vk.PipelineVertexInputStateCreateInfo,
                         input_assembly:   ^vk.PipelineInputAssemblyStateCreateInfo = nil,
                         viewport:         ^vk.PipelineViewportStateCreateInfo = nil,
                         rasterization:    ^vk.PipelineRasterizationStateCreateInfo = nil,
@@ -24,6 +24,7 @@ create_pipeline :: proc(device:           vk.Device,
     attributes := []vk.VertexInputAttributeDescription {}
     vertex_input_default: vk.PipelineVertexInputStateCreateInfo 
     if vertex_input == nil {
+        assert(false)
         vertex_input_default = get_vertex_input(bindings, attributes)
         vertex_input = &vertex_input_default
     }
