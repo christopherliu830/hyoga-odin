@@ -227,7 +227,11 @@ resize :: proc(this: ^RenderContext) -> bool {
         glfw.WaitEvents()
     }
 
+    vk_assert(vk.QueueWaitIdle(this.queues[.GRAPHICS]))
+
     swapchain_destroy_framebuffers(this.device, this.passes[.FORWARD].framebuffers)
+
+    buffers_destroy(this.device, this.depth_image)
 
     this.swapchain = swapchain_create(this.device,
                                       this.gpu, 
@@ -235,10 +239,14 @@ resize :: proc(this: ^RenderContext) -> bool {
                                       this.queue_indices,
                                       this.swapchain.handle)
 
+    extent := vk.Extent3D { this.swapchain.extent.width, this.swapchain.extent.height, 1 }
+    this.depth_image = buffers_create_image(this.device, extent, { .DEPTH_STENCIL_ATTACHMENT })
+
+    this.passes[.FORWARD].extent = extent
     this.passes[.FORWARD].framebuffers = swapchain_create_framebuffers(this.device,
-                                                      this.passes[.FORWARD].pass,
-                                                      this.swapchain,
-                                                      this.depth_image)
+                                                                       this.passes[.FORWARD].pass,
+                                                                       this.swapchain,
+                                                                       this.depth_image)
 
     this.window_needs_resize = false
 
