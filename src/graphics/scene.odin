@@ -270,47 +270,18 @@ scene_prepare :: proc(scene: ^Scene, ctx: ^RenderContext, frame_num: int) {
 }
 
 scene_do_forward_pass :: proc(scene: ^Scene, perframe: ^Perframe, pass: PassInfo) {
+
+    begin_render_pass(perframe, pass)
+
     scene.time += 0.001
-
-    clear_values := []vk.ClearValue {
-        { color = { float32 = [4]f32{ 0.01, 0.01, 0.01, 1.0 }}},
-        { depthStencil = { depth = 1 }},
-    }
-
-    index := perframe.index
-    cmd   := perframe.command_buffer
-    extent := vk.Extent2D { pass.extent.width, pass.extent.height }
-
-	// Update descriptor set to add image[frame] + sampler
-
-    rp_begin: vk.RenderPassBeginInfo = {
-        sType = .RENDER_PASS_BEGIN_INFO,
-        renderPass = pass.pass,
-        framebuffer = pass.framebuffers[index],
-        renderArea = { extent = extent },
-        clearValueCount = u32(len(clear_values)),
-        pClearValues = raw_data(clear_values),
-    }
-
-    vk.CmdBeginRenderPass(cmd, &rp_begin, vk.SubpassContents.INLINE)
-
-    viewport: vk.Viewport = {
-        width    = f32(extent.width),
-        height   = f32(extent.height),
-        minDepth = 0, maxDepth = 1,
-    }
-    vk.CmdSetViewport(cmd, 0, 1, &viewport)
-
-    scissor: vk.Rect2D = { extent = extent }
-    vk.CmdSetScissor(cmd, 0, 1, &scissor)
-
     frame_num := int(perframe.index)
 
     last_material: ^Material = nil
+    cmd := perframe.command_buffer
 
     for i in 0..<OBJECT_COUNT do scene_render_object(scene, cmd, int(frame_num), i, &last_material)
 
-    vk.CmdEndRenderPass(cmd)
+    end_render_pass(perframe)
 }
 
 scene_render_object :: proc(scene: ^Scene,

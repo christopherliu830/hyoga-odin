@@ -38,14 +38,19 @@ shadow_create_render_pass :: proc(device:       vk.Device,
     extent := vk.Extent3D { SHADOW_MAP_WIDTH, SHADOW_MAP_HEIGHT, 1 }
     
     pass.pass = builders.create_render_pass(device, { attachment }, { subpass }, { dependency })
+
     pass.images = make([]Image, image_count)
     pass.framebuffers = make([]vk.Framebuffer, image_count)
-    pass.extent = extent
-
     for i in 0..<image_count {
         pass.images[i] = buffers_create_image(device, extent, { .SAMPLED, .DEPTH_STENCIL_ATTACHMENT })
         pass.framebuffers[i] = builders.create_framebuffer(device, pass.pass, { pass.images[i].view }, extent)
     }
+
+    pass.clear_values = {{ depthStencil = { depth = 1 }}, {}}
+
+    pass.extent = extent
+
+
 
     return pass
 }
@@ -83,36 +88,13 @@ shadow_draw_object :: proc(scene:          ^Scene,
 
 
 shadow_exec_shadow_pass :: proc(scene: ^Scene, perframe: ^Perframe, pass: PassInfo) {
-    clear_value := vk.ClearValue { depthStencil = { depth = 1.0 }}
+    begin_render_pass(perframe, pass)
 
-    index := perframe.index
     cmd := perframe.command_buffer
-    extent := vk.Extent2D { pass.extent.width, pass.extent.height }
-
-    rp_begin: vk.RenderPassBeginInfo = {
-        sType = .RENDER_PASS_BEGIN_INFO,
-        renderPass = pass.pass,
-        framebuffer = pass.framebuffers[index],
-        renderArea = { extent = extent },
-        clearValueCount = 1,
-        pClearValues = &clear_value,
-    }
-
-    vk.CmdBeginRenderPass(cmd, &rp_begin, vk.SubpassContents.INLINE)
-
-    viewport: vk.Viewport = {
-        width    = f32(extent.width),
-        height   = f32(extent.height),
-        minDepth = 0, maxDepth = 1,
-    }
-    vk.CmdSetViewport(cmd, 0, 1, &viewport)
-
-    scissor: vk.Rect2D = { extent = extent }
-    vk.CmdSetScissor(cmd, 0, 1, &scissor)
 
     last_material: ^Material = nil
     for i in 0..<OBJECT_COUNT do shadow_draw_object(scene, cmd, perframe.index, i, &last_material)
 
-    vk.CmdEndRenderPass(cmd)
+    end_render_pass(perframe)
 }
 

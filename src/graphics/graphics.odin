@@ -130,6 +130,41 @@ acquire_image :: proc(using this: ^RenderContext, image: ^u32) -> vk.Result {
     return .SUCCESS
 }
 
+begin_render_pass :: proc(perframe: ^Perframe, pass: PassInfo) {
+
+    index  := perframe.index
+    cmd    := perframe.command_buffer
+    clear_values := pass.clear_values
+    extent := vk.Extent2D { pass.extent.width, pass.extent.height }
+
+    rp_begin: vk.RenderPassBeginInfo = {
+        sType = .RENDER_PASS_BEGIN_INFO,
+        renderPass = pass.pass,
+        framebuffer = pass.framebuffers[index],
+        renderArea = { extent = extent },
+        clearValueCount = u32(len(clear_values)),
+        pClearValues = raw_data(clear_values[:]),
+    }
+
+    vk.CmdBeginRenderPass(cmd, &rp_begin, vk.SubpassContents.INLINE)
+
+    viewport: vk.Viewport = {
+        width    = f32(extent.width),
+        height   = f32(extent.height),
+        minDepth = 0, maxDepth = 1,
+    }
+
+    vk.CmdSetViewport(cmd, 0, 1, &viewport)
+
+    scissor: vk.Rect2D = { extent = extent }
+
+    vk.CmdSetScissor(cmd, 0, 1, &scissor)
+}
+
+end_render_pass :: proc(perframe: ^Perframe) {
+    vk.CmdEndRenderPass(perframe.command_buffer)
+}
+
 draw :: proc(this: ^RenderContext, perframe: ^Perframe) -> vk.Result {
     g_time += 1
 
@@ -338,6 +373,11 @@ create_forward_pass :: proc(ctx: ^RenderContext) -> (pass: PassInfo) {
     pass.images = ctx.swapchain.images
     pass.framebuffers = swapchain_create_framebuffers(ctx.device, pass.pass, ctx.swapchain, ctx.depth_image) 
     pass.extent = extent
+
+    pass.clear_values = {
+        { color = { float32 = [4]f32{ 0.01, 0.01, 0.01, 1.0 }}},
+        { depthStencil = { depth = 1 }},
+    }
 
     return pass
 }

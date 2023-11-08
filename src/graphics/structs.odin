@@ -24,6 +24,7 @@ PassInfo :: struct {
     pass:          vk.RenderPass,
     framebuffers:  []vk.Framebuffer,
     images:        []Image,
+    clear_values:  [2]vk.ClearValue,
     extent:        vk.Extent3D,
 }
 
