@@ -4,6 +4,8 @@ import "core:log"
 
 import vk "vendor:vulkan"
 
+// Allocate multiple descriptors based on layout.
+// Prefer using descriptors module.
 allocate_descriptor_set :: proc(device: vk.Device,
                               pool: vk.DescriptorPool,
                               layouts: []vk.DescriptorSetLayout) ->

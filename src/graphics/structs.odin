@@ -21,11 +21,12 @@ Perframe :: struct {
 }
 
 PassInfo :: struct {
-    pass:          vk.RenderPass,
-    framebuffers:  []vk.Framebuffer,
-    images:        []Image,
-    clear_values:  [2]vk.ClearValue,
-    extent:        vk.Extent3D,
+    pass:           vk.RenderPass,
+    framebuffers:   []vk.Framebuffer,
+    images:         []Image,
+    clear_values:   [2]vk.ClearValue,
+    extent:         vk.Extent3D,
+    render_objects: []Mesh,
 }
 
 QueueFamily :: enum {
@@ -46,13 +47,14 @@ SemaphoreLink :: struct {
 
 Swapchain :: struct
 {
-    handle: vk.SwapchainKHR,
-    images: []Image,
-    format: vk.SurfaceFormatKHR,
-    extent: vk.Extent2D,
+    handle:       vk.SwapchainKHR,
+    images:       []Image,
+    depth_image:  Image,
+    format:       vk.SurfaceFormatKHR,
+    extent:       vk.Extent2D,
     present_mode: vk.PresentModeKHR,
-    image_count: u32,
-    support: SwapChainDetails,
+    image_count:  u32,
+    support:      SwapChainDetails,
 }
 
 SwapChainDetails :: struct

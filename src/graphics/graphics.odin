@@ -16,30 +16,52 @@ import "pkgs:vma"
 import "builders"
 
 RenderContext :: struct {
+
+    // Vulkan instance.
     instance:             vk.Instance,
+
+    // Handle to GLFW window.
     window:               glfw.WindowHandle,
+
+    // GPU handle and a struct of its properties.
     gpu:                  vk.PhysicalDevice,
     gpu_properties:       vk.PhysicalDeviceProperties,
-    queues:               [QueueFamily]vk.Queue,
+
+    // Desired queue indices of the GPU and handles to those queues.
     queue_indices:        [QueueFamily]int,
+    queues:               [QueueFamily]vk.Queue,
+
+    // Vulkan device context.
     device:               vk.Device,
+
+    // Vulkan display handles.
     surface:              vk.SurfaceKHR,
     swapchain:            Swapchain,
+
+    // Render passes (shadow, forward) and their respective data.
     passes:               [PassType]PassInfo,
+
     descriptor_pool:      vk.DescriptorPool,
+
+    // Global stage buffer. Use this and associated buffers module for
+    // moving buffers to GPU.
     stage:                StagingPlatform,
+
+    // The sync objects and command buffer are stored together
+    // in a Perframe object and duplicated for each swapchain image.
     perframes:            []Perframe,
+
+    // Used to synchronize acquire -> present
     semaphore_pool:       []SemaphoreLink,
     semaphore_list:       list.List,
-    depth_image:          Image,
 
+
+    // Holds data for scene.
     scene:                Scene,
 
     mat_cache:            MaterialCache,
 
     window_needs_resize:  bool,
-
-
 }
 
 WINDOW_HEIGHT :: 720
@@ -231,8 +253,9 @@ resize :: proc(this: ^RenderContext) -> bool {
 
     swapchain_destroy_framebuffers(this.device, this.passes[.FORWARD].framebuffers)
 
-    buffers_destroy(this.device, this.depth_image)
+    buffers_destroy(this.device, this.swapchain.depth_image)
 
+    // TODO: is this needed?
     this.swapchain = swapchain_create(this.device,
                                       this.gpu, 
                                       this.surface, 
@@ -240,13 +263,11 @@ resize :: proc(this: ^RenderContext) -> bool {
                                       this.swapchain.handle)
 
     extent := vk.Extent3D { this.swapchain.extent.width, this.swapchain.extent.height, 1 }
-    this.depth_image = buffers_create_image(this.device, extent, { .DEPTH_STENCIL_ATTACHMENT })
-
     this.passes[.FORWARD].extent = extent
+
     this.passes[.FORWARD].framebuffers = swapchain_create_framebuffers(this.device,
                                                                        this.passes[.FORWARD].pass,
-                                                                       this.swapchain,
-                                                                       this.depth_image)
+                                                                       this.swapchain)
 
     this.window_needs_resize = false
 
@@ -376,10 +397,8 @@ create_forward_pass :: proc(ctx: ^RenderContext) -> (pass: PassInfo) {
     extent := vk.Extent3D { ctx.swapchain.extent.width, ctx.swapchain.extent.height, 1 }
     count := ctx.swapchain.image_count
 
-    ctx.depth_image = buffers_create_image(ctx.device, extent, { .DEPTH_STENCIL_ATTACHMENT })
-
     pass.images = ctx.swapchain.images
-    pass.framebuffers = swapchain_create_framebuffers(ctx.device, pass.pass, ctx.swapchain, ctx.depth_image) 
+    pass.framebuffers = swapchain_create_framebuffers(ctx.device, pass.pass, ctx.swapchain) 
     pass.extent = extent
 
     pass.clear_values = {
@@ -432,8 +451,6 @@ cleanup :: proc(this: ^RenderContext) {
     cleanup_render_pass(this.device, this.passes[.SHADOW])
 
     // Forward pass is cleaned up by swapchain functions
-
-    buffers_destroy(this.device, this.depth_image)
 
     swapchain_destroy(this.device, this.swapchain)
 

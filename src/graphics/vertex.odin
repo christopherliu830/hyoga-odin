@@ -10,6 +10,11 @@ Vertex :: struct {
     uv:        la.Vector2f32,
 }
 
+Mesh :: struct {
+    vertices: Buffer,
+    indices: Buffer,
+}
+
 BINDINGS :: []vk.VertexInputBindingDescription {{
     binding = 0,
     stride = size_of(Vertex),
@@ -22,5 +27,3 @@ ATTRIBUTES :: []vk.VertexInputAttributeDescription {
     { 2, 0, .R32G32B32A32_SFLOAT, u32(offset_of(Vertex, color)) },
     { 3, 0, .R32G32_SFLOAT, u32(offset_of(Vertex, uv)) },
 }
-
-

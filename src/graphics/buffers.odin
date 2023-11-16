@@ -98,6 +98,8 @@ buffers_create :: proc(size: int, type: BufferType, alignment: int = mem.DEFAULT
 }
 
 
+// Create a Tbuffer.
+// size - size of buffer in bytes.
 buffers_create_tbuffer :: proc($T: typeid,
                                size: int,
                                type: BufferType,

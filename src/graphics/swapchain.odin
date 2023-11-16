@@ -139,12 +139,17 @@ swapchain_create :: proc(device:         vk.Device,
         vk_assert(vk.CreateImageView(device, &image_view_create_info, nil, &(swapchain.images[i].view)))
     }
 
+    extent := vk.Extent3D { swapchain.extent.width, swapchain.extent.height, 1 }
+    swapchain.depth_image = buffers_create_image(device, extent, { .DEPTH_STENCIL_ATTACHMENT })
+
     return swapchain
 }
 
 swapchain_destroy :: proc(device: vk.Device, swapchain: Swapchain) {
 
     for image in swapchain.images do vk.DestroyImageView(device, image.view, nil)
+
+    buffers_destroy(device, swapchain.depth_image)
 
     // Images controlled by swapchain do not need to be destroyed
 
@@ -153,15 +158,14 @@ swapchain_destroy :: proc(device: vk.Device, swapchain: Swapchain) {
     delete(swapchain.images)
 }
 
-swapchain_create_framebuffers :: proc(device: vk.Device,
+swapchain_create_framebuffers :: proc(device:      vk.Device,
                                       render_pass: vk.RenderPass,
-                                      swapchain: Swapchain,
-                                      depth_image: Image) ->
+                                      swapchain:   Swapchain) ->
 (framebuffers: []vk.Framebuffer) {
     framebuffers = make([]vk.Framebuffer, swapchain.image_count) 
 
     for i in 0..<swapchain.image_count {
-        attachments: []vk.ImageView = { swapchain.images[i].view, depth_image.view }
+        attachments: []vk.ImageView = { swapchain.images[i].view, swapchain.depth_image.view }
 
         framebuffer_create_info: vk.FramebufferCreateInfo = {
             sType           = .FRAMEBUFFER_CREATE_INFO,
