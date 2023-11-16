@@ -149,12 +149,14 @@ buffers_create_by_flags :: proc(size:      int,
     return buffer
 }
 
-buffers_create_image :: proc(device: vk.Device, extent: vk.Extent3D, usage: vk.ImageUsageFlags) ->
+buffers_create_image :: proc(format: vk.Format, extent: vk.Extent3D, usage: vk.ImageUsageFlags) ->
 (image: Image) {
+    device := get_context().device
+
     image_info := vk.ImageCreateInfo {
         sType       = .IMAGE_CREATE_INFO,
         imageType   = .D2,
-        format      = .D32_SFLOAT,
+        format      = format,
         extent      = extent,
         mipLevels   = 1,
         arrayLayers = 1,
@@ -182,9 +184,9 @@ buffers_create_image :: proc(device: vk.Device, extent: vk.Extent3D, usage: vk.I
         sType = .IMAGE_VIEW_CREATE_INFO,
         viewType = .D2,
         image = image.handle,
-        format = .D32_SFLOAT,
+        format = format,
         subresourceRange = {
-            aspectMask = { .DEPTH },
+            aspectMask = { format == .D32_SFLOAT ? .DEPTH : .COLOR },
             baseMipLevel = 0, 
             levelCount = 1,
             baseArrayLayer =  0,
@@ -250,9 +252,9 @@ buffers_destroy_staging :: proc(staging: StagingPlatform) {
 
 // Move device-local memory to the GPU.
 buffers_write :: proc(buffer: Buffer,
-                                data:   rawptr,
-                                size_:  int = 0,
-                                offset: uintptr = 0) ->
+                      data:   rawptr,
+                      size_:  int = 0,
+                      offset: uintptr = 0) ->
 (Result) {
     size := size_ != 0 ? int(size_) : int(buffer.size) - int(offset)
 
@@ -368,6 +370,59 @@ buffers_copy :: proc(up:    UploadContext,
     }
 
     vk.CmdCopyBuffer(up.command_buffer, up.buffer.handle, dst.handle, 1, &copy_op)
+}
+
+buffers_copy_image :: proc(up:     UploadContext,
+                           extent: vk.Extent3D,
+                           dst:    Image) {
+
+    barrier := vk.ImageMemoryBarrier {
+        sType = .IMAGE_MEMORY_BARRIER,
+        oldLayout = .UNDEFINED,
+        newLayout = .TRANSFER_DST_OPTIMAL,
+        image = dst.handle,
+        subresourceRange = {
+            aspectMask = { .COLOR },
+            baseMipLevel = 0,
+            levelCount = 1,
+            baseArrayLayer = 0,
+            layerCount = 1,
+        },
+        srcAccessMask = {},
+        dstAccessMask = { .TRANSFER_WRITE },
+    }
+
+    builders.cmd_pipeline_barrier(up.command_buffer,
+                                  { .TOP_OF_PIPE },
+                                  { .TRANSFER },
+                                  image_memory_barriers = { barrier })
+    
+    region := vk.BufferImageCopy {
+        bufferOffset = vk.DeviceSize(up.offset),
+        imageSubresource = {
+            aspectMask = { .COLOR },
+            mipLevel = 0,
+            baseArrayLayer = 0,
+            layerCount = 1,
+        },
+        imageExtent = extent,
+    }
+
+    vk.CmdCopyBufferToImage(up.command_buffer, up.buffer.handle, dst.handle, .TRANSFER_DST_OPTIMAL, 1, &region)
+
+    to_shader_barrier := vk.ImageMemoryBarrier {
+        sType = .IMAGE_MEMORY_BARRIER,
+        oldLayout = .TRANSFER_DST_OPTIMAL,
+        newLayout = .SHADER_READ_ONLY_OPTIMAL,
+        srcAccessMask = { .TRANSFER_WRITE },
+        dstAccessMask = { .SHADER_READ },
+        image = dst.handle
+    }
+
+    builders.cmd_pipeline_barrier(up.command_buffer,
+                                  { .TRANSFER },
+                                  { .FRAGMENT_SHADER },
+                                  image_memory_barriers = { to_shader_barrier })
 }
 
 

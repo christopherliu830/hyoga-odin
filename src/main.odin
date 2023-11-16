@@ -14,6 +14,8 @@ main :: proc () {
     graphics.init()
     ctx := graphics.get_context()
 
+    graphics.create_material({ name = "stone", diffuse_path = "assets/textures/stone.png" })
+
     for !glfw.WindowShouldClose(ctx.window) {
         glfw.PollEvents()
         graphics.update(ctx)

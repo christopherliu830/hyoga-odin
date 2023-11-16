@@ -140,7 +140,7 @@ swapchain_create :: proc(device:         vk.Device,
     }
 
     extent := vk.Extent3D { swapchain.extent.width, swapchain.extent.height, 1 }
-    swapchain.depth_image = buffers_create_image(device, extent, { .DEPTH_STENCIL_ATTACHMENT })
+    swapchain.depth_image = buffers_create_image(.D32_SFLOAT, extent, { .DEPTH_STENCIL_ATTACHMENT })
 
     return swapchain
 }

@@ -42,7 +42,7 @@ shadow_create_render_pass :: proc(device:       vk.Device,
     pass.images = make([]Image, image_count)
     pass.framebuffers = make([]vk.Framebuffer, image_count)
     for i in 0..<image_count {
-        pass.images[i] = buffers_create_image(device, extent, { .SAMPLED, .DEPTH_STENCIL_ATTACHMENT })
+        pass.images[i] = buffers_create_image(.D32_SFLOAT, extent, { .SAMPLED, .DEPTH_STENCIL_ATTACHMENT })
         pass.framebuffers[i] = builders.create_framebuffer(device, pass.pass, { pass.images[i].view }, extent)
     }
 

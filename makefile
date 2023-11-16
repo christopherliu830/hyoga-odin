@@ -38,7 +38,7 @@ $(RELEXE): FORCE
 	$(ODIN_COMPILER) build $(ODIN_SOURCE_DIR) $(RELODIN_FLAGS) 
 
 # Prep
-install: shaders
+install: shaders textures
 
 # SHADERS -----------------------------------------------------------
 SHADER_SOURCE_DIR = assets/shaders
@@ -62,3 +62,6 @@ $(SHADER_BUILD_DIR)/%.spv: $(SHADER_SOURCE_DIR)/%
 
 FORCE: ;
 
+TEXTURE_SOURCE_DIR = assets/textures
+textures:
+	cp -r assets/textures ${OUT_DIR}/assets/textures
