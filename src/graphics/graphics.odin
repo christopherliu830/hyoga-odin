@@ -55,7 +55,6 @@ RenderContext :: struct {
     semaphore_pool:       []SemaphoreLink,
     semaphore_list:       list.List,
 
-
     // Holds data for scene.
     scene:                Scene,
 
@@ -72,11 +71,23 @@ OBJECT_COUNT :: 12
 @private
 g_time : f32 = 0
 
+g_render_context : RenderContext
+g_frame_index : int = -1
+
+get_context :: proc() -> ^RenderContext {
+    return &g_render_context
+}
+
+get_frame :: proc() -> ^Perframe {
+    return &get_context().perframes[g_frame_index]
+}
+
 update :: proc(ctx: ^RenderContext) -> bool {
     index: u32
     result: vk.Result
 
     result = acquire_image(ctx, &index)
+    g_frame_index = int(index)
     if result == .SUBOPTIMAL_KHR || result == .ERROR_OUT_OF_DATE_KHR {
         resize(ctx)
     }
@@ -150,41 +161,6 @@ acquire_image :: proc(using this: ^RenderContext, image: ^u32) -> vk.Result {
     vk_assert(vk.BeginCommandBuffer(cmd, &begin_info))
 
     return .SUCCESS
-}
-
-begin_render_pass :: proc(perframe: ^Perframe, pass: PassInfo) {
-
-    index  := perframe.index
-    cmd    := perframe.command_buffer
-    clear_values := pass.clear_values
-    extent := vk.Extent2D { pass.extent.width, pass.extent.height }
-
-    rp_begin: vk.RenderPassBeginInfo = {
-        sType = .RENDER_PASS_BEGIN_INFO,
-        renderPass = pass.pass,
-        framebuffer = pass.framebuffers[index],
-        renderArea = { extent = extent },
-        clearValueCount = u32(len(clear_values)),
-        pClearValues = raw_data(clear_values[:]),
-    }
-
-    vk.CmdBeginRenderPass(cmd, &rp_begin, vk.SubpassContents.INLINE)
-
-    viewport: vk.Viewport = {
-        width    = f32(extent.width),
-        height   = f32(extent.height),
-        minDepth = 0, maxDepth = 1,
-    }
-
-    vk.CmdSetViewport(cmd, 0, 1, &viewport)
-
-    scissor: vk.Rect2D = { extent = extent }
-
-    vk.CmdSetScissor(cmd, 0, 1, &scissor)
-}
-
-end_render_pass :: proc(perframe: ^Perframe) {
-    vk.CmdEndRenderPass(perframe.command_buffer)
 }
 
 draw :: proc(this: ^RenderContext, perframe: ^Perframe) -> vk.Result {
@@ -274,7 +250,8 @@ resize :: proc(this: ^RenderContext) -> bool {
     return true
 }
 
-init :: proc(this: ^RenderContext) {
+init :: proc() {
+    this := get_context()
     this.window = init_window(this)
 
     // Vulkan does not come loaded into Odin by default, 
@@ -409,24 +386,6 @@ create_forward_pass :: proc(ctx: ^RenderContext) -> (pass: PassInfo) {
     return pass
 }
 
-
-create_perframes :: proc(device: vk.Device, count: int) ->
-(perframes: []Perframe) {
-    perframes = make([]Perframe, count)
-
-    for _, i in perframes {
-        p := &perframes[i]
-        p.index = i
-        p.image_available = nil
-        p.render_finished = builders.create_semaphore(device)
-        p.in_flight_fence = builders.create_fence(device, { .SIGNALED })
-        p.command_pool    = builders.create_command_pool(device, { .TRANSIENT, .RESET_COMMAND_BUFFER })
-        p.command_buffer  = builders.create_command_buffer(device, p.command_pool)
-    }
-
-    return perframes
-}
-
 create_sync_objects :: proc(device: vk.Device, count: int) ->
 (semaphores: []SemaphoreLink, sem_list: list.List) {
     semaphores = make([]SemaphoreLink, count)[0:count]
@@ -457,7 +416,7 @@ cleanup :: proc(this: ^RenderContext) {
     for sem in this.semaphore_pool do vk.DestroySemaphore(this.device, sem.semaphore, nil)
     delete(this.semaphore_pool)
 
-    cleanup_perframes(this)
+    for perframe in this.perframes do  cleanup_perframe(this.device, perframe)
 
     buffers_shutdown()
 
@@ -481,15 +440,6 @@ cleanup_render_pass :: proc(device: vk.Device, pass: PassInfo) {
         vk.DestroyFramebuffer(device, framebuffer, nil) 
     }
     delete(pass.framebuffers)
-}
-
-cleanup_perframes :: proc(using ctx: ^RenderContext) {
-    for perframe in perframes {
-        vk.DestroyCommandPool(device, perframe.command_pool, nil)
-        vk.DestroyFence(device, perframe.in_flight_fence, nil)
-        vk.DestroySemaphore(device, perframe.render_finished, nil)
-    }
-    delete(perframes)
 }
 
 key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods: i32) {

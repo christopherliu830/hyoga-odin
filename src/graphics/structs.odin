@@ -11,15 +11,6 @@ vec3 :: la.Vector3f32
 vec4 :: la.Vector4f32
 mat4 :: la.Matrix4f32
 
-Perframe :: struct {
-    index:           int,
-    in_flight_fence: vk.Fence,
-    command_pool:    vk.CommandPool,
-    command_buffer:  vk.CommandBuffer,
-    image_available: ^SemaphoreLink,
-    render_finished: vk.Semaphore,
-}
-
 PassInfo :: struct {
     pass:           vk.RenderPass,
     framebuffers:   []vk.Framebuffer,

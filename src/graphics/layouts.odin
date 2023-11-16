@@ -26,6 +26,11 @@ ShaderResource :: struct {
     size:         int,
 }
 
+DescriptorLayout :: struct {
+    resources: []ShaderResource,
+    handle: vk.DescriptorSetLayout,
+}
+
 VERTEX_BINDINGS :: [LayoutType][]vk.VertexInputBindingDescription {
     .DEFAULT = BINDINGS,
     .DIFFUSE = BINDINGS,
@@ -79,20 +84,24 @@ RESOURCE_IMAGE_SAMPLER :: ShaderResource {
 // Number denotes set number.
 // Index in list is binding number.
 ShaderLayouts :: [LayoutType][len(DescriptorNumber)][]ShaderResource {
+
     .DEFAULT = {
         0 = { RESOURCE_CAMERA, RESOURCE_LIGHTS },
-        3 = { RESOURCE_OBJECT },
     },
+
     .DIFFUSE = {
         0 = { RESOURCE_CAMERA, RESOURCE_LIGHTS, RESOURCE_IMAGE_SAMPLER, RESOURCE_CAMERA /* Shadows */ },
         2 = { RESOURCE_COLOR },
         3 = { RESOURCE_OBJECT },
     },
+
     .SHADOW = {
         0 = { RESOURCE_CAMERA },
         3 = { RESOURCE_OBJECT },
     },
 }
+
+GLOBAL_UNIFORMS :: []ShaderResource { RESOURCE_CAMERA, RESOURCE_LIGHTS }
 
 layout_create_descriptor_layout :: proc(device: vk.Device, type: LayoutType) ->
 (layouts: [len(DescriptorNumber)]vk.DescriptorSetLayout) {
@@ -100,21 +109,7 @@ layout_create_descriptor_layout :: proc(device: vk.Device, type: LayoutType) ->
 
     for _, set_num in DescriptorNumber {
         resources := config[type][set_num]
-
-        bindings := make([]vk.DescriptorSetLayoutBinding, len(resources))
-        defer delete(bindings)
-
-        for binding_num in 0..<len(resources) {
-            resource := resources[binding_num]
-            bindings[binding_num] = {
-                binding         = u32(binding_num),
-                descriptorType  = resource.type,
-                descriptorCount = 1,
-                stageFlags      = resource.stages,
-            }
-        }
-
-        layouts[set_num] = builders.create_descriptor_set_layout(device, bindings)
+        layouts[set_num] = layout_create_one(device, resources).handle
     }
 
     // Fill in empty layouts with no bindings
@@ -122,4 +117,20 @@ layout_create_descriptor_layout :: proc(device: vk.Device, type: LayoutType) ->
         layouts[i] = builders.create_descriptor_set_layout(device, {})
     }
     return layouts
+}
+
+layout_create_one :: proc (device: vk.Device, resources: []ShaderResource) -> DescriptorLayout {
+    bindings := make([]vk.DescriptorSetLayoutBinding, len(resources))
+    defer delete(bindings)
+
+    for binding_num in 0..<len(resources) {
+        resource := resources[binding_num]
+        bindings[binding_num] = {
+            binding         = u32(binding_num),
+            descriptorType  = resource.type,
+            descriptorCount = 1,
+            stageFlags      = resource.stages,
+        }
+    }
+    return { resources, builders.create_descriptor_set_layout(device, bindings) }
 }
