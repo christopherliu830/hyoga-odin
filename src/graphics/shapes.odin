@@ -125,6 +125,8 @@ cube :: proc() -> Cube {
 }
 
 create_mesh :: proc(scene: ^Scene, vertices: []Vertex, indices: []u16) -> Handle {
+    ctx := get_context()
+
     size_vertices := size_of(vertices[0]) * len(vertices)
     size_indices := size_of(indices[0]) * len(indices)
 
@@ -135,8 +137,13 @@ create_mesh :: proc(scene: ^Scene, vertices: []Vertex, indices: []u16) -> Handle
 
     scene.meshes[scene.n_meshes] = mesh
 
-    buffers_write(mesh.vertices, raw_data(vertices), size_vertices)
-    buffers_write(mesh.indices, raw_data(indices), size_indices)
+    v := buffers_stage(&ctx.stage, raw_data(vertices), size_vertices)
+    buffers_copy(v, size_vertices, mesh.vertices)
+
+    i := buffers_stage(&ctx.stage, raw_data(indices), size_indices)
+    buffers_copy(i, size_indices, mesh.indices)
+
+    buffers_flush_stage(&ctx.stage)
 
     handle := scene.n_meshes
 
