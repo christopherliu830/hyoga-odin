@@ -169,7 +169,6 @@ draw :: proc(this: ^RenderContext, perframe: ^Perframe) -> vk.Result {
     cmd := perframe.command_buffer
     index := perframe.index
 
-
     shadow_prepare(&this.scene, &this.passes[.SHADOW])
     shadow_exec_shadow_pass(&this.scene, perframe, &this.passes[.SHADOW])
 
