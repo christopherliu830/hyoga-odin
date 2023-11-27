@@ -40,7 +40,6 @@ PassType :: enum {
 Material :: struct {
     passes:      [PassType]^ShaderEffect,
     descriptors: [PassType]vk.DescriptorSet,
-    uniforms:    Buffer,
 }
 
 MAX_SHADER_STAGES :: 2
@@ -155,8 +154,6 @@ mats_create :: proc(name: string,
         mat.descriptors[pass_type] = descriptors_get(descriptor_layouts[MATERIAL_SET])
     }
 
-    mat.uniforms = buffers_create(MATERIAL_UNIFORM_BUFFER_SIZE, .UNIFORM_DYNAMIC)
-
     cache.materials[name] = mat
 
     return &cache.materials[name]
@@ -170,7 +167,6 @@ mats_destroy_shader_effect :: proc(device: vk.Device, effect: ^ShaderEffect) {
 }
 
 mats_destroy_material :: proc(device: vk.Device, material: ^Material) {
-    buffers_destroy(material.uniforms)
 }
 
 @private

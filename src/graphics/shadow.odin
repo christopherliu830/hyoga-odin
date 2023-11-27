@@ -51,7 +51,10 @@ shadow_create_render_pass :: proc(device:       vk.Device,
     pass.mat_buffer = buffers_create_tbuffer(MaterialUBO, UNIFORM_BUFFER_SIZE, .UNIFORM_DYNAMIC)
     // pass.mat_descriptor = descriptors_get(pass.in_layouts.descriptors[MATERIAL_SET])
 
-    pass.object_buffer = buffers_create_tbuffer(ObjectUBO, UNIFORM_BUFFER_SIZE, .UNIFORM_DYNAMIC)
+    pass.object_buffers = make([]TBuffer(ObjectUBO), image_count)
+    for i in 0..<image_count {
+        pass.object_buffers[i] = buffers_create_tbuffer(ObjectUBO, UNIFORM_BUFFER_SIZE, .UNIFORM_DYNAMIC)
+    }
     // pass.object_descriptor = descriptors_get(pass.in_layouts.descriptors[OBJECT_SET])
 
     return pass
@@ -72,8 +75,6 @@ shadow_prepare :: proc(scene: ^Scene, pass: ^PassInfo) {
             descriptors_bind(desc, resource.name, rd, buffer^)
         }
     }
-
-    for i in 0..<OBJECT_COUNT do scene_prepare_obj(scene, pass, i)
 
     pass.descriptors = descriptors
 }
@@ -118,7 +119,7 @@ shadow_exec_shadow_pass :: proc(scene: ^Scene, perframe: ^Perframe, pass: ^PassI
                                     { u32(size_of(Camera) * frame_num)})
 
     last_material: ^ShaderEffect = nil
-    for i in 0..<OBJECT_COUNT do shadow_draw_object(scene, pass, i, &last_material)
+    for i in 0..<pass.n_renderables do shadow_draw_object(scene, pass, i, &last_material)
 
     end_render_pass()
 }

@@ -14,4 +14,5 @@ layout(location = 0) in vec3 position;
 void main()
 {
     gl_Position = _view.proj * _view.view * _model.model * vec4(position, 1);
+    gl_Position.z = gl_Position.z * 0.5 + 0.5;
 }

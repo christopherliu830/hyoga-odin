@@ -14,7 +14,6 @@ MaterialIn :: struct {
 }
 
 create_material :: proc (mat_in: MaterialIn) -> (mat: MyMaterial) {
-
     ctx := get_context()
     stage := &ctx.stage
 

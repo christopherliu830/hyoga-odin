@@ -13,6 +13,7 @@ vec4 :: la.Vector4f32
 mat4 :: la.Matrix4f32
 
 Handle :: u32
+THandle :: struct($T: typeid) { id: int }
 
 MaterialCache :: struct {
     buffer: []u8,
@@ -39,6 +40,8 @@ MaterialUBO :: struct {
 Renderable :: struct {
     vertex_buffer: Buffer,
     index_buffer: Buffer,
+    transform: ObjectUBO,
+
     material_offset: int,
     object_offset: int,
 
@@ -53,7 +56,7 @@ PassInfo :: struct {
 
     global_descriptor: vk.DescriptorSet,
 
-    object_buffer: TBuffer(ObjectUBO),
+    object_buffers: []TBuffer(ObjectUBO),
     object_descriptor: vk.DescriptorSet,
 
     // ---INPUTS---
