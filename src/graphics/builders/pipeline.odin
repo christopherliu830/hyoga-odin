@@ -124,8 +124,6 @@ create_pipeline_layout :: proc(device: vk.Device, layouts: []vk.DescriptorSetLay
     return layout
 }
 
-
-
 create_depth_attachment :: proc(index: int) -> 
 (description: vk.AttachmentDescription, reference: vk.AttachmentReference) {
     description = {
@@ -188,7 +186,6 @@ create_render_pass :: proc(device:        vk.Device,
 
     return render_pass
 }
-
 
 get_vertex_input :: proc(bindings:   []vk.VertexInputBindingDescription,
                          attributes: []vk.VertexInputAttributeDescription) ->

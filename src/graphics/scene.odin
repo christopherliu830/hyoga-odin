@@ -24,10 +24,10 @@ Scene :: struct {
     time:            f32,
     device:          vk.Device,
 
-    object_ubos:     TBuffer(mat4),
+    object_ubos:     TBuffer(ObjectUBO),
     obj_descriptor:  vk.DescriptorSet,
 
-    mat_buffers:     TBuffer(mat4),
+    mat_buffers:     TBuffer(MaterialUBO),
     mat_descriptor:  vk.DescriptorSet,
 
     // Camera and lights are duplicated for each frame in flight.
@@ -37,6 +37,7 @@ Scene :: struct {
 
 	shadows_sampler: vk.Sampler,
     shadows_buffer:  TBuffer(Camera),
+    shadow_images:    []Image,
 
     cube_vertex:     Buffer,
     cube_index:      Buffer,
@@ -99,8 +100,9 @@ scene_init :: proc(scene:  ^Scene) {
 
     scene.shadows_buffer = scene_setup_shadows(num_frames)
 	scene.shadows_sampler = builders.create_sampler(scene.device, 1.0)
+    scene.shadow_images = ctx.passes[.SHADOW].images
 
-    scene.object_ubos = buffers_create_dubo(mat4, OBJECT_COUNT * num_frames)
+    scene.object_ubos = buffers_create_dubo(ObjectUBO, OBJECT_COUNT * num_frames)
 
     cube := create_cube()
     scene.cube_vertex = buffers_create(size_of(cube.vertices), .VERTEX)
@@ -233,16 +235,16 @@ scene_prepare :: proc(scene: ^Scene, pass: ^PassInfo) {
     gd := pass.global_descriptor
     descriptors_bind(gd, "_camera", rd, scene.camera_buffer)
     descriptors_bind(gd, "_lights", rd, scene.lights_buffer)
-    // descriptors_bind(descriptor, "_image_sampler", rd, scene.shadows_sampler, pass.images[frame_num].view)
+    descriptors_bind(gd, "_image_sampler", rd, scene.shadows_sampler, scene.shadow_images[frame_num].view)
     descriptors_bind(gd, "_shadow_cam", rd, scene.shadows_buffer)
-
-    pass.object_descriptor = descriptors_get(pass.in_layouts.descriptors[OBJECT_SET])
-    od := pass.object_descriptor
-    descriptors_bind(od, "_object", rd, pass.object_buffer)
 
     pass.mat_descriptor = descriptors_get(pass.in_layouts.descriptors[MATERIAL_SET])
     md := pass.mat_descriptor
     descriptors_bind(md, "_material", rd, pass.mat_buffer)
+
+    pass.object_descriptor = descriptors_get(pass.in_layouts.descriptors[OBJECT_SET])
+    od := pass.object_descriptor
+    descriptors_bind(od, "_object", rd, pass.object_buffer)
 
     for i in 0..<OBJECT_COUNT do scene_prepare_obj(scene, pass, i)
 }
@@ -275,13 +277,12 @@ scene_do_forward_pass :: proc(scene: ^Scene, pass: ^PassInfo) {
     cmd := get_frame().command_buffer
     frame_num := get_frame().index
 
-    last_material: ^ShaderEffect = nil
-
     // Bind Global Descriptor Set
     descriptor := pass.global_descriptor
     cam_offset := u32(size_of(Camera) * frame_num)
     builders.cmd_bind_descriptor_set(cmd, pass.in_layouts.pipeline, 0, { descriptor }, { cam_offset, cam_offset } )
 
+    last_material: ^ShaderEffect = nil
     for i in 0..<OBJECT_COUNT do scene_render_object(scene, pass, i, &last_material)
 
     end_render_pass()
@@ -362,5 +363,22 @@ scene_bind_descriptors :: proc(this: ^Scene, material: ^Material) {
                                  .UNIFORM_BUFFER_DYNAMIC,
                                  material.descriptors[.SHADOW][3], 0)
                                  */
+}
+
+scene_find_resource :: proc(this: ^Scene, pass: ^PassInfo, name: string) -> rawptr {
+    switch(name) {
+        case "_camera": 
+            return &this.camera_buffer
+        case "_lights":
+            return &this.lights_buffer
+        case "_image_sampler":
+            return &this.shadows_sampler
+        case "_shadow_cam":
+            return &this.shadows_buffer
+        case "_object":
+            return &pass.object_buffer
+        case:
+            return nil
+    }
 }
 

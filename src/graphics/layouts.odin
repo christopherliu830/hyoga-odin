@@ -100,7 +100,7 @@ DEFAULT_RESOURCES :: [PassType]ResourceDescription {
     },
 
     .SHADOW = {
-        0 = { RESOURCE_CAMERA },
+        0 = { RESOURCE_SHADOW },
         3 = { RESOURCE_OBJECT },
     },
 }

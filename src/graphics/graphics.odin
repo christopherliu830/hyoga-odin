@@ -170,7 +170,8 @@ draw :: proc(this: ^RenderContext, perframe: ^Perframe) -> vk.Result {
     index := perframe.index
 
 
-    // shadow_exec_shadow_pass(&this.scene, perframe, this.passes[.SHADOW])
+    shadow_prepare(&this.scene, &this.passes[.SHADOW])
+    shadow_exec_shadow_pass(&this.scene, perframe, &this.passes[.SHADOW])
 
     scene_prepare(&this.scene, &this.passes[.FORWARD])
     scene_do_forward_pass(&this.scene, &this.passes[.FORWARD])

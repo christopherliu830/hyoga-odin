@@ -49,6 +49,8 @@ PassInfo :: struct {
     type: PassType,
     pass:           vk.RenderPass,
 
+    descriptors: [4]vk.DescriptorSet,
+
     global_descriptor: vk.DescriptorSet,
 
     object_buffer: TBuffer(ObjectUBO),

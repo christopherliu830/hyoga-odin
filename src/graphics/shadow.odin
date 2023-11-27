@@ -48,47 +48,77 @@ shadow_create_render_pass :: proc(device:       vk.Device,
 
     pass.in_layouts = layout_get_pass_resources(.SHADOW)
 
+    pass.mat_buffer = buffers_create_tbuffer(MaterialUBO, UNIFORM_BUFFER_SIZE, .UNIFORM_DYNAMIC)
+    // pass.mat_descriptor = descriptors_get(pass.in_layouts.descriptors[MATERIAL_SET])
+
+    pass.object_buffer = buffers_create_tbuffer(ObjectUBO, UNIFORM_BUFFER_SIZE, .UNIFORM_DYNAMIC)
+    // pass.object_descriptor = descriptors_get(pass.in_layouts.descriptors[OBJECT_SET])
+
     return pass
 }
 
-shadow_draw_object :: proc(scene:          ^Scene,
-                           cmd:            vk.CommandBuffer,
-                           frame_num:      int,
-                           object_num:     int,
-                           last_material:  ^^Material)
+shadow_prepare :: proc(scene: ^Scene, pass: ^PassInfo) {
+
+    rd := DEFAULT_RESOURCES[.SHADOW]
+
+    descriptors : [4]vk.DescriptorSet
+
+    for bindings, set_num in rd {
+        if len(bindings) == 0 do continue 
+        descriptors[set_num] = descriptors_get(pass.in_layouts.descriptors[set_num])
+        desc := descriptors[set_num]
+        for resource, binding_num in bindings {
+            buffer := transmute(^Buffer)scene_find_resource(scene, pass, resource.name)
+            descriptors_bind(desc, resource.name, rd, buffer^)
+        }
+    }
+
+    for i in 0..<OBJECT_COUNT do scene_prepare_obj(scene, pass, i)
+
+    pass.descriptors = descriptors
+}
+
+
+shadow_draw_object :: proc(scene: ^Scene,
+                           pass: ^PassInfo,
+                           object_num: int,
+                           last_material:  ^^ShaderEffect)
 {
-    // vertex_buffer := scene.vertex_buffers[object_num]
-    // index_buffer := scene.index_buffers[object_num]
-    // material := scene.materials[object_num]
+    frame_num := get_frame().index
+    cmd := get_frame().command_buffer
+    device := get_context().device
 
-    // if material.passes[.SHADOW] == nil do return
+    object := &pass.renderables[object_num]
 
-    // if last_material^ == nil {
-    //     mats_bind_descriptor(cmd, material, .SHADOW, 0, { size_of(Camera) * u32(frame_num) })
-    // }
+    // BIND PER MATERIAL DATA
+    if object.prog != last_material^ {
+        vk.CmdBindPipeline(cmd, .GRAPHICS, object.prog.pipeline)
+    }
 
-    // if last_material^ != material {
-    //     vk.CmdBindPipeline(cmd, .GRAPHICS, material.passes[.SHADOW].pipeline)
-    // }
+    last_material^ = object.prog
+
+    dynamic_offset := u32(object.object_offset)
+    builders.cmd_bind_descriptor_set(cmd, pass.in_layouts.pipeline, OBJECT_SET, { pass.descriptors[OBJECT_SET] }, { dynamic_offset })
                   
-    // dynamic_offset := u32(size_of(mat4) * object_num)
-    // mats_bind_descriptor(cmd, material, .SHADOW, 3, { dynamic_offset })
+    offset : vk.DeviceSize = 0
 
-    // offset : vk.DeviceSize = 0
-    // vk.CmdBindVertexBuffers(cmd, 0, 1, &vertex_buffer.handle, &offset)
-    // vk.CmdBindIndexBuffer(cmd, index_buffer.handle, 0, .UINT16)
-    // vk.CmdDrawIndexed(cmd, u32(index_buffer.size / size_of(u16)), 1, 0, 0, 0)
-
-    // last_material^ = material
+    vk.CmdBindVertexBuffers(cmd, 0, 1, &object.vertex_buffer.handle, &offset)
+    vk.CmdBindIndexBuffer(cmd, object.index_buffer.handle, 0, .UINT16)
+    vk.CmdDrawIndexed(cmd, u32(object.index_buffer.size / size_of(u16)), 1, 0, 0, 0)
 }
 
 shadow_exec_shadow_pass :: proc(scene: ^Scene, perframe: ^Perframe, pass: ^PassInfo) {
     begin_render_pass(pass)
 
     cmd := perframe.command_buffer
+    frame_num := g_frame_index
 
-    last_material: ^Material = nil
-    for i in 0..<OBJECT_COUNT do shadow_draw_object(scene, cmd, perframe.index, i, &last_material)
+    builders.cmd_bind_descriptor_set(cmd, pass.in_layouts.pipeline,
+                                     GLOBAL_SET, { pass.descriptors[GLOBAL_SET] },
+                                    { u32(size_of(Camera) * frame_num)})
+
+    last_material: ^ShaderEffect = nil
+    for i in 0..<OBJECT_COUNT do shadow_draw_object(scene, pass, i, &last_material)
 
     end_render_pass()
 }
