@@ -5,7 +5,7 @@ import la "core:math/linalg"
 
 import vk "vendor:vulkan"
 
-create_tetrahedron :: proc() -> Tetrahedron {
+tetrahedron :: proc() -> Tetrahedron {
     v := [?]la.Vector3f32 {
         { 1,  1,  1},
         { 1, -1, -1},
@@ -61,7 +61,7 @@ create_tetrahedron :: proc() -> Tetrahedron {
     return tetra
 }
 
-create_cube :: proc() -> Cube {
+cube :: proc() -> Cube {
 
     vertices := [8]la.Vector3f32 {
         {-1, -1, -1},
@@ -124,3 +124,26 @@ create_cube :: proc() -> Cube {
     return cube
 }
 
+create_mesh :: proc(scene: ^Scene, vertices: []Vertex, indices: []u16) -> Handle {
+    size_vertices := size_of(vertices[0]) * len(vertices)
+    size_indices := size_of(indices[0]) * len(indices)
+
+    mesh := Mesh {
+        vertices = buffers_create(size_vertices, .VERTEX),
+        indices = buffers_create(size_indices, .INDEX),
+    }
+
+    scene.meshes[scene.n_meshes] = mesh
+
+    buffers_write(mesh.vertices, raw_data(vertices), size_vertices)
+    buffers_write(mesh.indices, raw_data(indices), size_indices)
+
+    handle := scene.n_meshes
+
+    scene.n_meshes += 1
+
+    return u32(handle)
+}
+
+add_object :: proc(scene: ^Scene, mesh: Handle, position: vec3)  {
+}

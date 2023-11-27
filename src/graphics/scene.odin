@@ -46,17 +46,22 @@ Scene :: struct {
     model:           [OBJECT_COUNT]mat4,
     vertex_buffers:  [OBJECT_COUNT]Buffer,
     index_buffers:   [OBJECT_COUNT]Buffer,
+
+    meshes:          [MAX_MESHES]Mesh,
+    n_meshes:      int, 
+
     materials:       [OBJECT_COUNT]^Material,
 
     // Animation func for cubes.
     offsets:         proc(i: int, t: f32, m: mat4) -> mat4
 }
 
-
 ObjectType :: enum {
     CUBE,
     TETRA
 }
+
+MAX_MESHES :: 4
 
 create_test_scene :: proc(scene: ^Scene, mat_cache: ^MaterialCache) {
     for i in 0..<OBJECT_COUNT {
@@ -104,7 +109,7 @@ scene_init :: proc(scene:  ^Scene) {
 
     scene.object_ubos = buffers_create_dubo(ObjectUBO, OBJECT_COUNT * num_frames)
 
-    cube := create_cube()
+    cube := cube()
     scene.cube_vertex = buffers_create(size_of(cube.vertices), .VERTEX)
     scene.cube_index = buffers_create(size_of(cube.indices), .INDEX)
 
