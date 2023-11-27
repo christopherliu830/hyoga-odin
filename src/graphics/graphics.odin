@@ -169,11 +169,11 @@ draw :: proc(this: ^RenderContext, perframe: ^Perframe) -> vk.Result {
     cmd := perframe.command_buffer
     index := perframe.index
 
-    scene_prepare(&this.scene, this, index)
 
-    shadow_exec_shadow_pass(&this.scene, perframe, this.passes[.SHADOW])
+    // shadow_exec_shadow_pass(&this.scene, perframe, this.passes[.SHADOW])
 
-    scene_do_forward_pass(&this.scene, perframe, this.passes[.FORWARD])
+    scene_prepare(&this.scene, &this.passes[.FORWARD])
+    scene_do_forward_pass(&this.scene, &this.passes[.FORWARD])
 
     return .SUCCESS
 }
@@ -289,6 +289,8 @@ init :: proc() {
                                       this.surface, 
                                       this.queue_indices)
 
+
+    descriptors_init(this.device)
     
     extent := vk.Extent3D {
         this.swapchain.extent.width, 
@@ -303,16 +305,13 @@ init :: proc() {
 
     this.descriptor_pool = descriptors_create_pool(this.device, 1000).pool
 
-    descriptors_init(this.device)
-
     this.semaphore_pool, this.semaphore_list = create_sync_objects(this.device, int(this.swapchain.image_count) + 1)
-
 
     this.stage = buffers_create_staging(this.device, this.queues[.TRANSFER])
 
     mats_init(&this.mat_cache)
 
-    scene_init(&this.scene, this)
+    scene_init(&this.scene)
 }
 
 init_window :: proc(this: ^RenderContext) -> glfw.WindowHandle {
@@ -370,6 +369,7 @@ create_forward_pass :: proc(ctx: ^RenderContext) -> (pass: PassInfo) {
     dependencies := []vk.SubpassDependency { dependency, depth_dependency }
 
     pass.pass = builders.create_render_pass(ctx.device, attachments, subpasses, dependencies) 
+    pass.type = .FORWARD
 
     extent := vk.Extent3D { ctx.swapchain.extent.width, ctx.swapchain.extent.height, 1 }
     count := ctx.swapchain.image_count
@@ -382,6 +382,14 @@ create_forward_pass :: proc(ctx: ^RenderContext) -> (pass: PassInfo) {
         { color = { float32 = [4]f32{ 0.01, 0.01, 0.01, 1.0 }}},
         { depthStencil = { depth = 1 }},
     }
+
+    pass.in_layouts = layout_get_pass_resources(.FORWARD)
+
+    pass.mat_buffer = buffers_create_tbuffer(MaterialUBO, UNIFORM_BUFFER_SIZE, .UNIFORM_DYNAMIC)
+    // pass.mat_descriptor = descriptors_get(pass.in_layouts.descriptors[MATERIAL_SET])
+
+    pass.object_buffer = buffers_create_tbuffer(ObjectUBO, UNIFORM_BUFFER_SIZE, .UNIFORM_DYNAMIC)
+    // pass.object_descriptor = descriptors_get(pass.in_layouts.descriptors[OBJECT_SET])
 
     return pass
 }

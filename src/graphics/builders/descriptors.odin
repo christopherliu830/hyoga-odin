@@ -7,8 +7,8 @@ import vk "vendor:vulkan"
 // Allocate multiple descriptors based on layout.
 // Prefer using descriptors module.
 allocate_descriptor_set :: proc(device: vk.Device,
-                              pool: vk.DescriptorPool,
-                              layouts: []vk.DescriptorSetLayout) ->
+                                pool: vk.DescriptorPool,
+                                layouts: []vk.DescriptorSetLayout) ->
 (sets: [4]vk.DescriptorSet, result: vk.Result) {
     info := vk.DescriptorSetAllocateInfo {
         sType = .DESCRIPTOR_SET_ALLOCATE_INFO,
@@ -40,7 +40,7 @@ allocate_descriptor :: proc(device: vk.Device,
 
 
 bind_descriptor_set :: proc (device:   vk.Device,
-                             info:     vk.DescriptorBufferInfo,
+                             info:     $T,
                              type:     vk.DescriptorType,
                              set:      vk.DescriptorSet,
                              binding:  int) {
@@ -52,29 +52,12 @@ bind_descriptor_set :: proc (device:   vk.Device,
         dstBinding      = u32(binding),
         descriptorCount = 1,
         descriptorType  = type,
-        pBufferInfo     = &info,
     }
 
-    vk.UpdateDescriptorSets(device, 1, &write, 0, nil)
-}
-
-bind_descriptor_set_image :: proc(device:   vk.Device,
-                                  info:     vk.DescriptorImageInfo,
-                                  set:      vk.DescriptorSet,
-                                  binding:  int) {
-    info := info
-
-    write := vk.WriteDescriptorSet {
-        sType           = .WRITE_DESCRIPTOR_SET,
-        dstSet          = set,
-        dstBinding      = u32(binding),
-        descriptorCount = 1,
-        descriptorType  = .COMBINED_IMAGE_SAMPLER,
-        pImageInfo      = &info,
-    }
+    if type == .COMBINED_IMAGE_SAMPLER do write.pImageInfo = transmute(^vk.DescriptorImageInfo)&info
+    else do write.pBufferInfo = transmute(^vk.DescriptorBufferInfo)&info
 
     vk.UpdateDescriptorSets(device, 1, &write, 0, nil)
-
 }
 
 create_descriptor_set_layout :: proc(device: vk.Device, bindings: []vk.DescriptorSetLayoutBinding) ->

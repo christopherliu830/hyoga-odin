@@ -13,17 +13,13 @@
             "name": "externals",
             "path": "externals"
         },
-				{
-						"name": "pkgs",
-						"path": "pkgs"
-				},
         {
-            "name": "memory",
-            "path": "src/memory"
+            "name": "pkgs",
+            "path": "pkgs"
         },
         {
-            "name": "graphics",
-            "path": "src/graphics"
+            "name": "src",
+            "path": "src"
         }
     ],
     "enable_document_symbols": false,

@@ -10,16 +10,6 @@ import vk "vendor:vulkan"
 
 import "builders"
 
-MaterialCache :: struct {
-    buffer: []u8,
-    arena: mem.Arena,
-
-    effects: map[string]ShaderEffect,
-    materials: map[string]Material,
-
-    // Cache resource handles to descriptors that describe them.
-    descriptors: map[vk.NonDispatchableHandle]vk.DescriptorSet,
-}
 
 ShaderFile :: struct {
     path: string,
@@ -31,10 +21,15 @@ ShaderStage :: struct{
     stage:   vk.ShaderStageFlag,
 }
 
+ShaderEffectIn :: struct {
+    name:         string,
+    pass_type:    PassType,
+    paths:        []ShaderFile
+}
+
 ShaderEffect :: struct {
+    type:             PassType,
     pipeline:         vk.Pipeline,
-    pipeline_layout:  vk.PipelineLayout,
-    desc_layouts:     [4]vk.DescriptorSetLayout,
 }
 
 PassType :: enum {
@@ -44,7 +39,7 @@ PassType :: enum {
 
 Material :: struct {
     passes:      [PassType]^ShaderEffect,
-    descriptors: [PassType][4]vk.DescriptorSet,
+    descriptors: [PassType]vk.DescriptorSet,
     uniforms:    Buffer,
 }
 
@@ -80,27 +75,24 @@ mats_get_mat :: proc(cache: ^MaterialCache, name: string) -> ^Material {
     return &cache.materials[name]
 }
 
-mats_create_shader_effect :: proc(ctx:          ^RenderContext,
-                                  render_pass:  vk.RenderPass,
-                                  name:         string,
-                                  type:         LayoutType,
-                                  paths:        []ShaderFile) ->
+mats_create_shader_effect :: proc(args: ShaderEffectIn) ->
 (^ShaderEffect) {
     effect: ShaderEffect
 
+    ctx := get_context()
     device := ctx.device
     cache := ctx.mat_cache
+    name := args.name
+    paths := args.paths
+    pass := ctx.passes[args.pass_type]
 
     if name in cache.effects {
         return &cache.effects[name]
     }
 
-    stage_count := len(paths)
+    stage_count := len(args.paths)
 
     assert(stage_count <= MAX_SHADER_STAGES)
-
-    effect.desc_layouts = layout_create_descriptor_layout(device, type)
-    effect.pipeline_layout = builders.create_pipeline_layout(device, effect.desc_layouts[:])
 
     shader_stages := make([]vk.PipelineShaderStageCreateInfo, stage_count)
     defer delete(shader_stages)
@@ -125,11 +117,14 @@ mats_create_shader_effect :: proc(ctx:          ^RenderContext,
 
     bindings := VERTEX_BINDINGS
     attributes := VERTEX_ATTRIBUTES
-    vertex_input := builders.get_vertex_input(bindings[type], attributes[type])
+
+    vertex_input := builders.get_vertex_input(bindings[args.pass_type], attributes[args.pass_type])
+
+    effect.type = args.pass_type
 
     effect.pipeline = builders.create_pipeline(device,
-                                               layout = effect.pipeline_layout,
-                                               render_pass = render_pass,
+                                               layout = pass.in_layouts.pipeline,
+                                               render_pass = pass.pass,
                                                vertex_input = &vertex_input,
                                                stages = shader_stages)
 
@@ -138,39 +133,33 @@ mats_create_shader_effect :: proc(ctx:          ^RenderContext,
     return &cache.effects[name]
 }
 
-mats_create :: proc(ctx: ^RenderContext,
-                    name: string,
-                    passes: []struct { type: PassType, effect: ^ShaderEffect }) ->
+mats_create :: proc(name: string,
+                    effects: []^ShaderEffect) ->
 (^Material) {
 
-    if name in ctx.mat_cache.materials do return &ctx.mat_cache.materials[name]
+    cache := &get_context().mat_cache
+    device := get_context().device
+    passes := &get_context().passes
+
+    if name in cache.materials do return &cache.materials[name]
 
     mat: Material
 
-    for pass in passes {
-        if pass.effect == nil do continue
-        mat.passes[pass.type] = pass.effect
-        mat.descriptors[pass.type], _ = builders.allocate_descriptor_set(ctx.device, ctx.descriptor_pool, pass.effect.desc_layouts[:])
+    for effect in effects {
+        pass_type := effect.type
+        pass := passes[pass_type].in_layouts
+        assert(mat.passes[pass_type] == nil)
+
+        mat.passes[pass_type] = effect
+        descriptor_layouts := passes[pass_type].in_layouts.descriptors
+        mat.descriptors[pass_type] = descriptors_get(descriptor_layouts[MATERIAL_SET])
     }
 
     mat.uniforms = buffers_create(MATERIAL_UNIFORM_BUFFER_SIZE, .UNIFORM_DYNAMIC)
 
-    ctx.mat_cache.materials[name] = mat
+    cache.materials[name] = mat
 
-    return &ctx.mat_cache.materials[name]
-}
-
-mats_bind_descriptor :: proc(cmd: vk.CommandBuffer,
-                             material: ^Material,
-                             pass: PassType,
-                             set: int,
-                             dynamics: []u32 = {}) {
-
-    vk.CmdBindDescriptorSets(cmd, .GRAPHICS,
-                             material.passes[pass].pipeline_layout, u32(set),
-                             1, &material.descriptors[pass][set],
-                             u32(len(dynamics)), raw_data(dynamics))
-
+    return &cache.materials[name]
 }
 
 mats_destroy :: proc { mats_destroy_shader_effect, mats_destroy_material }
@@ -178,8 +167,6 @@ mats_destroy :: proc { mats_destroy_shader_effect, mats_destroy_material }
 mats_destroy_shader_effect :: proc(device: vk.Device, effect: ^ShaderEffect) {
     if effect == nil do return
     if effect.pipeline != 0 do vk.DestroyPipeline(device, effect.pipeline, nil)
-    if effect.pipeline_layout != 0 do vk.DestroyPipelineLayout(device, effect.pipeline_layout, nil)
-    for layout in effect.desc_layouts do vk.DestroyDescriptorSetLayout(device, layout, nil)
 }
 
 mats_destroy_material :: proc(device: vk.Device, material: ^Material) {

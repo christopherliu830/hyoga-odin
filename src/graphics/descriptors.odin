@@ -15,6 +15,7 @@ UnscaledPoolSize :: struct {
 DescriptorLink :: struct {
     link: list.Node,
     pool: vk.DescriptorPool,
+    cache: map[vk.DescriptorSetLayout]vk.DescriptorSet,
 }
 
 DESCRIPTOR_POOL_SIZES :: [?]UnscaledPoolSize {
@@ -57,8 +58,14 @@ descriptors_init :: proc(device: vk.Device) {
     current_descriptor_pool^ = descriptors_create_pool(device, 1000)
 }
 
-descriptors_get_one :: proc(device: vk.Device, layout: vk.DescriptorSetLayout) -> vk.DescriptorSet {
+descriptors_get :: proc(layout: vk.DescriptorSetLayout) -> vk.DescriptorSet {
+    device := get_context().device
+
     pool := current_descriptor_pool.pool
+    cache := current_descriptor_pool.cache
+
+    if layout in cache do return cache[layout]
+
     descriptor, result := builders.allocate_descriptor(device, pool, layout)
 
     if result == .ERROR_OUT_OF_POOL_MEMORY {
@@ -70,10 +77,58 @@ descriptors_get_one :: proc(device: vk.Device, layout: vk.DescriptorSetLayout) -
         }
 
         vk_assert(vk.ResetDescriptorPool(device, current_descriptor_pool.pool, {}))
-        descriptor, result = builders.allocate_descriptor(device, current_descriptor_pool.pool, layout)
-        return descriptor
+        return descriptors_get(layout)
     }
 
+    cache[layout] = descriptor
 
     return descriptor 
+}
+
+descriptors_bind :: proc { descriptors_bind_buffer, descriptors_bind_sampler, descriptors_bind_dynamic_uniform_buffer }
+
+descriptors_bind_buffer :: proc(descriptor: vk.DescriptorSet, id: string, rd: ResourceDescription, buffer: Buffer) {
+    device := get_context().device
+
+    resource, set_number, binding_number := layout_get(rd, id)
+
+    buffer_info := vk.DescriptorBufferInfo {
+        buffer = buffer.handle,
+        offset = 0,
+        range = vk.DeviceSize(resource.size),
+    }
+
+    builders.bind_descriptor_set(device, buffer_info, resource.type, descriptor, binding_number)
+}
+
+descriptors_bind_dynamic_uniform_buffer :: proc(descriptor: vk.DescriptorSet, 
+                                                id: string,
+                                                rd: ResourceDescription,
+                                                $type: typeid,
+                                                buffer: Buffer) {
+    device := get_context().device
+
+    buffer_info := vk.DescriptorBufferInfo {
+        buffer = buffer.handle,
+        range = size_of(type),
+        offset = 0,
+    }
+
+    resource, set_number, binding_number := layout_get(rd, id)
+
+    builders.bind_descriptor_set(device, buffer_info, resource.type, descriptor, binding_number)
+}
+
+descriptors_bind_sampler :: proc(descriptor: vk.DescriptorSet, id: string, rd: ResourceDescription, 
+                                 sampler: vk.Sampler, view: vk.ImageView) {
+    device := get_context().device
+
+    sampler_info := vk.DescriptorImageInfo {
+        sampler = sampler,
+        imageView = view,
+        imageLayout = .READ_ONLY_OPTIMAL,
+    }
+
+    resource, set_number, binding_number := layout_get(rd, id)
+    builders.bind_descriptor_set(device, sampler_info, resource.type, descriptor, binding_number)
 }

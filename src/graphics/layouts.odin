@@ -3,13 +3,13 @@ package graphics
 import "core:log" 
 
 import vk "vendor:vulkan"
+
 import "builders"
 
-LayoutType:: enum {
-    DEFAULT,
-    DIFFUSE,
-    SHADOW,
-}
+MAX_BINDINGS :: 8
+GLOBAL_SET :: 0
+MATERIAL_SET :: 2
+OBJECT_SET :: 3
 
 DescriptorNumber :: enum {
     GLOBAL,
@@ -26,20 +26,21 @@ ShaderResource :: struct {
     size:         int,
 }
 
-DescriptorLayout :: struct {
-    resources: []ShaderResource,
-    handle: vk.DescriptorSetLayout,
+// RESOURCES builds DESCRIPTORS builds PIPELINE_LAYOUT
+PassResourceLayout :: struct {
+    pipeline: vk.PipelineLayout,
+    descriptors: [4]vk.DescriptorSetLayout
 }
 
-VERTEX_BINDINGS :: [LayoutType][]vk.VertexInputBindingDescription {
-    .DEFAULT = BINDINGS,
-    .DIFFUSE = BINDINGS,
+ResourceDescription :: distinct [4][]ShaderResource
+
+VERTEX_BINDINGS :: [PassType][]vk.VertexInputBindingDescription {
+    .FORWARD = BINDINGS,
     .SHADOW  = {{ 0, size_of(Vertex), .VERTEX }},
 }
 
-VERTEX_ATTRIBUTES :: [LayoutType][]vk.VertexInputAttributeDescription {
-    .DEFAULT = ATTRIBUTES,
-    .DIFFUSE = ATTRIBUTES,
+VERTEX_ATTRIBUTES :: [PassType][]vk.VertexInputAttributeDescription {
+    .FORWARD = ATTRIBUTES,
     .SHADOW = {{ 0, 0, .R32G32B32_SFLOAT, 0 }},
 }
 
@@ -75,6 +76,14 @@ RESOURCE_COLOR :: ShaderResource {
     size        = size_of(vec4),
 }
 
+RESOURCE_SHADOW :: ShaderResource {
+    name        = "_shadow_cam",
+    type        = .UNIFORM_BUFFER_DYNAMIC,
+    stages      = { .VERTEX },
+    buffer_type = .UNIFORM_DYNAMIC,
+    size        = size_of(Camera),
+}
+
 RESOURCE_IMAGE_SAMPLER :: ShaderResource {
     name        = "_image_sampler",
     type        = .COMBINED_IMAGE_SAMPLER,
@@ -83,14 +92,9 @@ RESOURCE_IMAGE_SAMPLER :: ShaderResource {
 
 // Number denotes set number.
 // Index in list is binding number.
-ShaderLayouts :: [LayoutType][len(DescriptorNumber)][]ShaderResource {
-
-    .DEFAULT = {
-        0 = { RESOURCE_CAMERA, RESOURCE_LIGHTS },
-    },
-
-    .DIFFUSE = {
-        0 = { RESOURCE_CAMERA, RESOURCE_LIGHTS, RESOURCE_IMAGE_SAMPLER, RESOURCE_CAMERA /* Shadows */ },
+DEFAULT_RESOURCES :: [PassType]ResourceDescription {
+    .FORWARD = {
+        0 = { RESOURCE_CAMERA, RESOURCE_LIGHTS, RESOURCE_IMAGE_SAMPLER, RESOURCE_SHADOW },
         2 = { RESOURCE_COLOR },
         3 = { RESOURCE_OBJECT },
     },
@@ -103,13 +107,48 @@ ShaderLayouts :: [LayoutType][len(DescriptorNumber)][]ShaderResource {
 
 GLOBAL_UNIFORMS :: []ShaderResource { RESOURCE_CAMERA, RESOURCE_LIGHTS }
 
-layout_create_descriptor_layout :: proc(device: vk.Device, type: LayoutType) ->
+layout_get_pass_resources :: proc(pass: PassType) ->
+(PassResourceLayout) {
+    ctx := get_context()
+    device := ctx.device
+    cache := ctx.mat_cache
+
+    id := Handle(pass)
+
+    if id in cache.pipeline_descriptions do return cache.pipeline_descriptions[id]
+
+    default_layouts := DEFAULT_RESOURCES 
+    layouts := layout_create_descriptor_layout(default_layouts[pass])
+
+    pipeline_desc := PassResourceLayout {
+        pipeline = builders.create_pipeline_layout(device, layouts[:]),
+        descriptors = layouts,
+    }
+
+    cache.pipeline_descriptions[id] = pipeline_desc
+    return pipeline_desc
+}
+
+layout_create_descriptor_layout :: proc(rd: ResourceDescription) ->
 (layouts: [len(DescriptorNumber)]vk.DescriptorSetLayout) {
-    config := ShaderLayouts
+    device := get_context().device
 
     for _, set_num in DescriptorNumber {
-        resources := config[type][set_num]
-        layouts[set_num] = layout_create_one(device, resources).handle
+        descriptor_set := rd[set_num]
+        bindings := make([]vk.DescriptorSetLayoutBinding, len(descriptor_set))
+        defer delete(bindings)
+
+        for binding_num in 0..<len(descriptor_set) {
+            resource := descriptor_set[binding_num]
+            bindings[binding_num] = {
+                binding         = u32(binding_num),
+                descriptorType  = resource.type,
+                descriptorCount = 1,
+                stageFlags      = resource.stages,
+            }
+        }
+
+        layouts[set_num] = builders.create_descriptor_set_layout(device, bindings)
     }
 
     // Fill in empty layouts with no bindings
@@ -119,18 +158,16 @@ layout_create_descriptor_layout :: proc(device: vk.Device, type: LayoutType) ->
     return layouts
 }
 
-layout_create_one :: proc (device: vk.Device, resources: []ShaderResource) -> DescriptorLayout {
-    bindings := make([]vk.DescriptorSetLayoutBinding, len(resources))
-    defer delete(bindings)
-
-    for binding_num in 0..<len(resources) {
-        resource := resources[binding_num]
-        bindings[binding_num] = {
-            binding         = u32(binding_num),
-            descriptorType  = resource.type,
-            descriptorCount = 1,
-            stageFlags      = resource.stages,
+layout_get_location :: proc(rd: ResourceDescription, id: string) -> (int, int) {
+    for resource_set, set_num in rd {
+        for resource, binding_num in resource_set {
+            if resource.name == id do return set_num, binding_num
         }
     }
-    return { resources, builders.create_descriptor_set_layout(device, bindings) }
+    return -1, -1
+}
+
+layout_get :: proc(rd: ResourceDescription, id: string) -> (ShaderResource, int, int) {
+    s, b := layout_get_location(rd, id)
+    return rd[s][b], s, b
 }

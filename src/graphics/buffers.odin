@@ -34,6 +34,7 @@ TBuffer :: struct($Type: typeid) {
 }
 
 STAGING_BUFFER_SIZE :: 8*mem.Megabyte
+UNIFORM_BUFFER_SIZE :: 1*mem.Megabyte
 
 BufferDefaultFlags :: [BufferType]BufferCreateFlags {
     .INDEX = {
@@ -210,7 +211,6 @@ buffers_create_dubo :: proc($T: typeid,
     return buffer
 }
 
-
 buffers_destroy :: proc { buffers_destroy_image, buffers_destroy_buffer }
 
 buffers_destroy_image :: proc(device: vk.Device, image: Image) {
@@ -280,7 +280,7 @@ buffers_write :: proc(buffer: Buffer,
 
 buffers_write_tbuffer :: proc(buffer:  TBuffer($T),
                               data:    rawptr,
-                              index:   int) -> Result {
+                              index:   int) -> int {
 
     element_size := size_of(T)
 
@@ -290,7 +290,9 @@ buffers_write_tbuffer :: proc(buffer:  TBuffer($T),
 
     offset := uintptr(element_size * index)
 
-    return buffers_write(buffer, data, element_size, offset)
+    buffers_write(buffer, data, element_size, offset)
+
+    return int(offset)
 }
 
 buffers_stage :: proc(stage:      ^StagingPlatform,
@@ -416,7 +418,14 @@ buffers_copy_image :: proc(up:     UploadContext,
         newLayout = .SHADER_READ_ONLY_OPTIMAL,
         srcAccessMask = { .TRANSFER_WRITE },
         dstAccessMask = { .SHADER_READ },
-        image = dst.handle
+        subresourceRange = {
+            aspectMask = { .COLOR },
+            baseMipLevel = 0,
+            levelCount = 1,
+            baseArrayLayer = 0,
+            layerCount = 1,
+        },
+        image = dst.handle,
     }
 
     builders.cmd_pipeline_barrier(up.command_buffer,
@@ -424,7 +433,6 @@ buffers_copy_image :: proc(up:     UploadContext,
                                   { .FRAGMENT_SHADER },
                                   image_memory_barriers = { to_shader_barrier })
 }
-
 
 buffers_default_flags :: proc(type: BufferType) -> BufferCreateFlags {
     flags := BufferDefaultFlags

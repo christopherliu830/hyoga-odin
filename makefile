@@ -16,6 +16,7 @@ ODIN_COMPILER = odin
 ODIN_FLAGS = -collection:externals=externals            \
 			 -collection:memory=src/memory              \
 			 -collection:graphics=src/graphics          \
+			 -collection:util=src/util                  \
 			 -collection:pkgs=pkgs
 
 RELODIN_FLAGS = -out=${RELEXE} ${ODIN_FLAGS}

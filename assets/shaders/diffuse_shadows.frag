@@ -38,7 +38,9 @@ void main() {
     float diff = clamp(dot(normal, lightDir), 0.0, 1.0);
     vec3 diffuse = _material.color.xyz * _light.color.xyz * diff * shadow_factor;
 
+    vec3 const_color = vec3(.3, .3, .3);
     vec3 result = clamp(ambient + diffuse, 0.0, 1.0);
+    result = const_color * diff;
 
     outColor = vec4(result, 1.0);
 }
