@@ -39,54 +39,19 @@ Scene :: struct {
     shadows_buffer:  TBuffer(Camera),
     shadow_images:    []Image,
 
-    cube_vertex:     Buffer,
-    cube_index:      Buffer,
-
-    // Each element is a handle, not a completely separate buffer.
-    model:           [OBJECT_COUNT]mat4,
-    vertex_buffers:  [OBJECT_COUNT]Buffer,
-    index_buffers:   [OBJECT_COUNT]Buffer,
-    materials:       [OBJECT_COUNT]^Material,
+    meshes:          [MAX_MESHES]Mesh,
+    n_meshes:        int, 
 
     // Animation func for cubes.
     offsets:         proc(i: int, t: f32, m: mat4) -> mat4
 }
-
 
 ObjectType :: enum {
     CUBE,
     TETRA
 }
 
-create_test_scene :: proc(scene: ^Scene, mat_cache: ^MaterialCache) {
-    for i in 0..<OBJECT_COUNT {
-        scene.vertex_buffers[i] = scene.cube_vertex
-        scene.index_buffers[i] = scene.cube_index
-        if i % 2 == 0 do scene.materials[i] = mats_get_mat(mat_cache, "default_diffuse")
-        else do scene.materials[i] = mats_get_mat(mat_cache, "diffuse_red")
-
-        scene.model[i] = la.MATRIX4F32_IDENTITY *
-            la.matrix4_translate_f32(vec3 { math.sin(f32(i)/OBJECT_COUNT*math.TAU), 0, math.cos(f32(i)/OBJECT_COUNT*math.TAU) }) *
-            la.matrix4_scale(vec3 {0.2, 0.2, 0.2})
-    }
-
-    scene.offsets = proc(i: int, t: f32, m: mat4) -> mat4 {
-        // Cube #1 is floor to test shadows.
-        if i == 0 {
-            return la.matrix4_translate_f32(vec3 { 0, -.5, 0 }) * 
-                   la.matrix4_scale_f32(vec3 { 5, 0.2, 5 }) *
-                   la.MATRIX4F32_IDENTITY
-        } else { // Rotate all other cubes.
-            r := rand.create(u64(i))
-            s := rand.float32(&r) * 5
-            // x := rand.float32(&r) - 0.5 * s
-            x: f32 = 0
-            y := rand.float32(&r) - 0.5 * s
-            z := math.sin(t)
-            return m * la.matrix4_rotate(t * 1, vec3 { x, y, z }) 
-        }
-    }
-}
+MAX_MESHES :: 4
 
 scene_init :: proc(scene:  ^Scene) {
     ctx := get_context()
@@ -101,19 +66,6 @@ scene_init :: proc(scene:  ^Scene) {
     scene.shadows_buffer = scene_setup_shadows(num_frames)
 	scene.shadows_sampler = builders.create_sampler(scene.device, 1.0)
     scene.shadow_images = ctx.passes[.SHADOW].images
-
-    scene.object_ubos = buffers_create_dubo(ObjectUBO, OBJECT_COUNT * num_frames)
-
-    cube := create_cube()
-    scene.cube_vertex = buffers_create(size_of(cube.vertices), .VERTEX)
-    scene.cube_index = buffers_create(size_of(cube.indices), .INDEX)
-
-    up_ctx := buffers_stage(&ctx.stage, &cube.vertices, size_of(cube.vertices))
-    buffers_copy(up_ctx, size_of(cube.vertices), scene.cube_vertex)
-
-    up_ctx = buffers_stage(&ctx.stage, &cube.indices, size_of(cube.indices))
-    buffers_copy(up_ctx, size_of(cube.indices), scene.cube_index)
-
 
     // CREATE MATERIALS
 
@@ -139,29 +91,20 @@ scene_init :: proc(scene:  ^Scene) {
     diffuse := mats_create("default_diffuse", { shadow_effect, diffuse_effect })
     diffuse_red := mats_create("diffuse_red", { shadow_effect, diffuse_effect })
 
-    scene_bind_descriptors(&ctx.scene, diffuse)
-
-    data := vec4 { 1, 1, 1, 1 }
-    buffers_write(diffuse.uniforms, &data)
-
-    scene_bind_descriptors(&ctx.scene, diffuse_red)
-
-    data = vec4 { 0.6, 0.2, 0.2, 1 }
-    buffers_write(diffuse_red.uniforms, &data)
-
-    create_test_scene(scene, &ctx.mat_cache)
-
     buffers_flush_stage(&ctx.stage)
 }
 
 scene_shutdown :: proc(scene: ^Scene) {
     //TODO: shadow_destroy(scene.device, &scene.shadow_context)
 
+    for i in 0..<scene.n_meshes {
+        buffers_destroy(scene.meshes[i].vertices)
+        buffers_destroy(scene.meshes[i].indices)
+    }
+
     buffers_destroy(scene.lights_buffer)
     buffers_destroy(scene.camera_buffer)
     buffers_destroy(scene.object_ubos)
-    buffers_destroy(scene.cube_vertex)
-    buffers_destroy(scene.cube_index)
 }
 
 scene_setup_cameras :: proc(frame_count: int, extent: vk.Extent2D) ->
@@ -194,7 +137,7 @@ scene_setup_lights :: proc(frame_count: int) -> (lights: TBuffer(Light)) {
     lights = buffers_create_dubo(Light, frame_count)
 
     light := Light {
-        direction = vec4 { 2, -4, 0, 1 },
+        direction = vec4 { 1, -4, 0, 1 },
         color = vec4 { 1, 1, 1, 1 },
     }
 
@@ -209,14 +152,12 @@ scene_setup_shadows :: proc(frame_count: int) ->
 
     shadow := Camera {
         view = la.matrix4_look_at(
-            vec3{ -2,  4, 0},
-            vec3{ 0,  0, 0},
-            vec3{ 0,  1, 0},
+            vec3{  -1, 4, 0 },
+            vec3{  0, 0,  0 },
+            vec3{  0, 1,  0 },
         ),
-        proj = la.matrix_ortho3d_f32(-3, 3, -3, 3, 1, 6),
+        proj = la.matrix_ortho3d_f32(-1, 1, -1, 1, 0, 8),
     }
-
-    shadow.proj[1][1] *= -1
 
     for i in 0..<frame_count { 
 		buffers_write_tbuffer(shadows, &shadow, i) 
@@ -244,28 +185,7 @@ scene_prepare :: proc(scene: ^Scene, pass: ^PassInfo) {
 
     pass.object_descriptor = descriptors_get(pass.in_layouts.descriptors[OBJECT_SET])
     od := pass.object_descriptor
-    descriptors_bind(od, "_object", rd, pass.object_buffer)
-
-    for i in 0..<OBJECT_COUNT do scene_prepare_obj(scene, pass, i)
-}
-
-scene_prepare_obj :: proc(scene: ^Scene, pass: ^PassInfo, i: int) {
-    ctx := get_context()
-
-    object_data := scene.offsets(i, scene.time, scene.model[i])
-    offset := buffers_write_tbuffer(pass.object_buffer, &object_data, i)
-
-    mat := mats_get_mat(&ctx.mat_cache, "default_diffuse")
-
-    renderable := Renderable {
-        vertex_buffer = scene.cube_vertex,
-        index_buffer = scene.cube_index,
-        prog = mat.passes[pass.type],
-        object_offset = offset,
-        material_offset = 0,
-    }
-
-    pass.renderables[i] = renderable
+    descriptors_bind(od, "_object", rd, pass.object_buffers[g_frame_index])
 }
 
 scene_do_forward_pass :: proc(scene: ^Scene, pass: ^PassInfo) {
@@ -283,7 +203,7 @@ scene_do_forward_pass :: proc(scene: ^Scene, pass: ^PassInfo) {
     builders.cmd_bind_descriptor_set(cmd, pass.in_layouts.pipeline, 0, { descriptor }, { cam_offset, cam_offset } )
 
     last_material: ^ShaderEffect = nil
-    for i in 0..<OBJECT_COUNT do scene_render_object(scene, pass, i, &last_material)
+    for i in 0..<pass.n_renderables do scene_render_object(scene, pass, i, &last_material)
 
     end_render_pass()
 }
@@ -318,53 +238,6 @@ scene_render_object :: proc(scene: ^Scene,
     vk.CmdDrawIndexed(cmd, u32(object.index_buffer.size / size_of(u16)), 1, 0, 0, 0)
 }
 
-// Currently only works binding descriptors for those of the diffuse + shadow
-// material type. TODO: Support multiple materials and find a 
-// different way to do this.
-// This MUST match the resource layout in layouts.odin for the diffuse and
-// shadow shader effects.
-// per-frame bound descriptors are not set here.
-scene_bind_descriptors :: proc(this: ^Scene, material: ^Material) {
-    // Forward pass - bind resources
-    /*
-    builders.bind_descriptor_set(this.device,
-                                 { this.camera_buffer.handle, 0, size_of(Camera) },
-                                 .UNIFORM_BUFFER_DYNAMIC, 
-                                 material.descriptors[.FORWARD][0], 0)
-    
-    builders.bind_descriptor_set(this.device,
-                                 { this.lights_buffer.handle, 0, size_of(Light) },
-                                 .UNIFORM_BUFFER, 
-                                 material.descriptors[.FORWARD][0], 1)
-
-    builders.bind_descriptor_set(this.device,
-                                 { this.shadows_buffer.handle, 0, size_of(Camera) },
-                                 .UNIFORM_BUFFER_DYNAMIC, 
-                                 material.descriptors[.FORWARD][0], 3)
-	
-    builders.bind_descriptor_set(this.device,
-                                 { material.uniforms.handle, 0, MATERIAL_UNIFORM_BUFFER_SIZE },
-                                 .UNIFORM_BUFFER_DYNAMIC, 
-                                 material.descriptors[.FORWARD][2], 0)
-
-    builders.bind_descriptor_set(this.device,
-                                 { this.object_ubos.handle, 0, size_of(mat4) },
-                                 .UNIFORM_BUFFER_DYNAMIC, 
-                                 material.descriptors[.FORWARD][3], 0)
-
-    // Shadow pass - bind resources 
-    builders.bind_descriptor_set(this.device,
-                                 { this.shadows_buffer.handle, 0, size_of(Camera) },
-                                 .UNIFORM_BUFFER_DYNAMIC,
-                                 material.descriptors[.SHADOW][0], 0)
-
-    builders.bind_descriptor_set(this.device,
-                                 { this.object_ubos.handle, 0, size_of(mat4) },
-                                 .UNIFORM_BUFFER_DYNAMIC,
-                                 material.descriptors[.SHADOW][3], 0)
-                                 */
-}
-
 scene_find_resource :: proc(this: ^Scene, pass: ^PassInfo, name: string) -> rawptr {
     switch(name) {
         case "_camera": 
@@ -376,7 +249,7 @@ scene_find_resource :: proc(this: ^Scene, pass: ^PassInfo, name: string) -> rawp
         case "_shadow_cam":
             return &this.shadows_buffer
         case "_object":
-            return &pass.object_buffer
+            return &pass.object_buffers[g_frame_index]
         case:
             return nil
     }

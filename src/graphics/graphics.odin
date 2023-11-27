@@ -66,7 +66,6 @@ RenderContext :: struct {
 WINDOW_HEIGHT :: 720
 WINDOW_WIDTH :: 1280
 WINDOW_TITLE :: "Hyoga"
-OBJECT_COUNT :: 12
 
 @private
 g_time : f32 = 0
@@ -82,15 +81,22 @@ get_frame :: proc() -> ^Perframe {
     return &get_context().perframes[g_frame_index]
 }
 
-update :: proc(ctx: ^RenderContext) -> bool {
-    index: u32
+begin :: proc() {
+    ctx := get_context()
     result: vk.Result
+    index: u32
 
     result = acquire_image(ctx, &index)
     g_frame_index = int(index)
     if result == .SUBOPTIMAL_KHR || result == .ERROR_OUT_OF_DATE_KHR {
         resize(ctx)
     }
+}
+
+end :: proc() -> bool {
+    ctx := get_context()
+    index := u32(g_frame_index)
+    result: vk.Result
 
     perframe := &ctx.perframes[index]
 
@@ -168,7 +174,6 @@ draw :: proc(this: ^RenderContext, perframe: ^Perframe) -> vk.Result {
 
     cmd := perframe.command_buffer
     index := perframe.index
-
 
     shadow_prepare(&this.scene, &this.passes[.SHADOW])
     shadow_exec_shadow_pass(&this.scene, perframe, &this.passes[.SHADOW])
@@ -389,7 +394,10 @@ create_forward_pass :: proc(ctx: ^RenderContext) -> (pass: PassInfo) {
     pass.mat_buffer = buffers_create_tbuffer(MaterialUBO, UNIFORM_BUFFER_SIZE, .UNIFORM_DYNAMIC)
     // pass.mat_descriptor = descriptors_get(pass.in_layouts.descriptors[MATERIAL_SET])
 
-    pass.object_buffer = buffers_create_tbuffer(ObjectUBO, UNIFORM_BUFFER_SIZE, .UNIFORM_DYNAMIC)
+    pass.object_buffers = make([]TBuffer(ObjectUBO), count)
+    for i in 0..<count {
+        pass.object_buffers[i] = buffers_create_tbuffer(ObjectUBO, UNIFORM_BUFFER_SIZE, .UNIFORM_DYNAMIC)
+    }
     // pass.object_descriptor = descriptors_get(pass.in_layouts.descriptors[OBJECT_SET])
 
     return pass

@@ -35,8 +35,14 @@ void main() {
     gl_Position = _camera.proj * mv  * vec4(position, 1.0);
 
     // Interpolated values
-    fragNormal = mat3(transpose(inverse(_object.model))) * normal;
+    fragNormal = mat3(transpose(inverse(_object.model))) * normalize(normal);
     fragLightDir = _light.direction.xyz;
+
 	fragShadowCoords = _shadows.proj * _shadows.view * _object.model * vec4(position, 1.0);
+
+    // perspective divide - noop for orthographic projection
+    vec3 coords = fragShadowCoords.xyz / fragShadowCoords.w;
+    coords = coords * 0.5 + 0.5;
+    fragShadowCoords.xyz = coords;
 }
 
