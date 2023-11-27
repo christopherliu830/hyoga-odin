@@ -2,6 +2,7 @@ package graphics
 
 import la "core:math/linalg"
 import "core:container/intrusive/list"
+import "core:mem"
 
 import "vendor:glfw"
 import vk "vendor:vulkan"
@@ -11,13 +12,67 @@ vec3 :: la.Vector3f32
 vec4 :: la.Vector4f32
 mat4 :: la.Matrix4f32
 
+Handle :: u32
+
+MaterialCache :: struct {
+    buffer: []u8,
+    arena: mem.Arena,
+
+    effects: map[string]ShaderEffect,
+    materials: map[string]Material,
+
+    // Cache resource handles to descriptors that describe them.
+
+    pipeline_descriptions: map[Handle]PassResourceLayout,
+
+    descriptors: map[vk.NonDispatchableHandle]vk.DescriptorSet,
+}
+
+ObjectUBO :: struct {
+    model: mat4,
+}
+
+MaterialUBO :: struct {
+    color: mat4,
+}
+
+Renderable :: struct {
+    vertex_buffer: Buffer,
+    index_buffer: Buffer,
+    material_offset: int,
+    object_offset: int,
+
+    prog: ^ShaderEffect,
+}
+
 PassInfo :: struct {
+    type: PassType,
     pass:           vk.RenderPass,
+
+    descriptors: [4]vk.DescriptorSet,
+
+    global_descriptor: vk.DescriptorSet,
+
+    object_buffer: TBuffer(ObjectUBO),
+    object_descriptor: vk.DescriptorSet,
+
+    // ---INPUTS---
+    renderables: [100]Renderable,
+    n_renderables: int,
+
+    mat_buffer:     TBuffer(MaterialUBO),
+    mat_descriptor:  vk.DescriptorSet,
+
+    // Resources that can be accessed by this pass.
+    in_layouts: PassResourceLayout,
+
+    // ---OUTPUTS---
     framebuffers:   []vk.Framebuffer,
     images:         []Image,
+
     clear_values:   [2]vk.ClearValue,
     extent:         vk.Extent3D,
-    render_objects: []Mesh,
+
 }
 
 QueueFamily :: enum {

@@ -36,9 +36,12 @@ cleanup_perframe :: proc(device: vk.Device, perframe: Perframe) {
     vk.DestroySemaphore(device, perframe.render_finished, nil)
 }
 
-begin_render_pass :: proc(perframe: ^Perframe, pass: PassInfo) {
+begin_render_pass :: proc(pass: ^PassInfo) {
+    perframe := get_frame()
+
     index  := perframe.index
     cmd    := perframe.command_buffer
+
     clear_values := pass.clear_values
     extent := vk.Extent2D { pass.extent.width, pass.extent.height }
 
@@ -66,6 +69,6 @@ begin_render_pass :: proc(perframe: ^Perframe, pass: PassInfo) {
     vk.CmdSetScissor(cmd, 0, 1, &scissor)
 }
 
-end_render_pass :: proc(perframe: ^Perframe) {
-    vk.CmdEndRenderPass(perframe.command_buffer)
+end_render_pass :: proc() {
+    vk.CmdEndRenderPass(get_frame().command_buffer)
 }

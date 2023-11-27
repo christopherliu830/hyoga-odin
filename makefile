@@ -16,6 +16,7 @@ ODIN_COMPILER = odin
 ODIN_FLAGS = -collection:externals=externals            \
 			 -collection:memory=src/memory              \
 			 -collection:graphics=src/graphics          \
+			 -collection:util=src/util                  \
 			 -collection:pkgs=pkgs
 
 RELODIN_FLAGS = -out=${RELEXE} ${ODIN_FLAGS}
@@ -38,7 +39,7 @@ $(RELEXE): FORCE
 	$(ODIN_COMPILER) build $(ODIN_SOURCE_DIR) $(RELODIN_FLAGS) 
 
 # Prep
-install: shaders
+install: shaders textures
 
 # SHADERS -----------------------------------------------------------
 SHADER_SOURCE_DIR = assets/shaders
@@ -62,3 +63,6 @@ $(SHADER_BUILD_DIR)/%.spv: $(SHADER_SOURCE_DIR)/%
 
 FORCE: ;
 
+TEXTURE_SOURCE_DIR = assets/textures
+textures:
+	cp -r assets/textures ${OUT_DIR}/assets/textures
