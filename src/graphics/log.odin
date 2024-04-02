@@ -3,7 +3,7 @@ package graphics
 import "core:fmt"
 import "core:runtime"
 
-import bt "pkgs:obacktracing"
+import bt "pkgs:back"
 import vk "vendor:vulkan"
 
 vk_assert :: proc(result: vk.Result) {
@@ -56,14 +56,7 @@ glfw_error_callback :: proc "c" (code: i32, desc: cstring) {
 }
 
 backtrace :: proc() {
-    trace := bt.backtrace_get(16)
-    defer bt.backtrace_delete(trace)
-
-    messages, err := bt.backtrace_messages(trace)
-    defer bt.messages_delete(messages)
-    if err != nil do return
-
     fmt.println("[back trace]")
-    // Skip obacktracing messages
-    for i in 3..<len(messages) do fmt.printf("\t%s - %s\n", messages[i].symbol, messages[i].location)
+    trace := bt.trace_n(16)
+    fmt.print(trace)
 }

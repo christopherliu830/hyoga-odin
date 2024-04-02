@@ -6,7 +6,7 @@ import "core:fmt"
 import "core:strconv"
 
 import vk "vendor:vulkan"
-import bt "pkgs:obacktracing"
+import bt "pkgs:back"
 import "pkgs:vma"
 
 import "builders"
@@ -78,6 +78,9 @@ buffers_init :: proc(info: vma.AllocatorCreateInfo,
     info := info
 
     vulkan_functions := vma.create_vulkan_functions()
+    vulkan_functions.GetInstanceProcAddr = vk.GetInstanceProcAddr
+    vulkan_functions.GetDeviceProcAddr = vk.GetDeviceProcAddr
+
     info.pVulkanFunctions = &vulkan_functions
 
     vk_assert(vma.CreateAllocator(&info, &vma_allocator))

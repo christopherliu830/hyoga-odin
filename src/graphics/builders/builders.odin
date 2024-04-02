@@ -34,15 +34,26 @@ create_device :: proc(gpu: vk.PhysicalDevice,
                       extensions: []cstring = {},
                       layers: []cstring = {}) ->
 (device: vk.Device) {   
-	physical_features: vk.PhysicalDeviceVulkan13Features = {
+
+
+	vk13_features := vk.PhysicalDeviceVulkan13Features {
 		sType = .PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
 		pNext = nil,
 		synchronization2 = true,
 	}
 
+    // Create Device features and chain to indexing features,
+    // then populate values.
+    indexing_features := vk.PhysicalDeviceDescriptorIndexingFeatures { sType = .PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES }
+    gpu_features := vk.PhysicalDeviceFeatures2 { sType = .PHYSICAL_DEVICE_FEATURES_2 }
+    gpu_features.pNext = &indexing_features
+    vk.GetPhysicalDeviceFeatures2(gpu, &gpu_features)
+
+    indexing_features.pNext = &vk13_features
+
 	shader_features: vk.PhysicalDeviceShaderDrawParametersFeatures = {
         sType                = .PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES,
-		pNext				 = &physical_features,
+		pNext				 = &gpu_features,
         shaderDrawParameters = true,
     }
 
@@ -113,7 +124,12 @@ create_instance :: proc(extensions: []cstring, layers: []cstring = nil) ->
         pApplicationInfo        = &application_info,
     }
 
+    when ODIN_OS == .Darwin {
+        info.flags += { .ENUMERATE_PORTABILITY_KHR }
+    }
+
     vk_assert(vk.CreateInstance(&info, nil, &instance))
+
     return instance
 }
 

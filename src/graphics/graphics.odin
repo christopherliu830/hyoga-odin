@@ -270,6 +270,11 @@ init :: proc() {
     extensions: [dynamic]cstring
     defer delete(extensions)
     append(&extensions, ..glfw.GetRequiredInstanceExtensions())
+
+    when ODIN_OS == .Darwin {
+        append(&extensions, vk.KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME)
+    }
+
     this.instance = builders.create_instance(extensions[:])
 
     // Load the rest of Vulkan's functions.

@@ -3,7 +3,7 @@ package main
 import "core:log"
 
 import "vendor:glfw"
-import bt "pkgs:obacktracing"
+import bt "pkgs:back"
 
 import "graphics"
 
@@ -25,8 +25,10 @@ transform_to_mat4 :: proc(t: Transform) -> la.Matrix4f32 {
 }
 
 main :: proc () {
+    // Logging, Debug
     context.logger = log.create_console_logger();
     context.assertion_failure_proc = bt.assertion_failure_proc
+    bt.register_segfault_handler()
 
     graphics.init()
     ctx := graphics.get_context()

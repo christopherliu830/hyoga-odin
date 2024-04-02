@@ -9,8 +9,8 @@ DeviceMemoryCallbacks :: struct {
 }
 
 VulkanFunctions :: struct {
-	unused_1:                              proc(), //vkGetInstanceProcAddr
-	unused_2:                              proc(), //vkGetDeviceProcAddr
+	GetInstanceProcAddr:                   vk.ProcGetInstanceProcAddr, //vkGetInstanceProcAddr
+	GetDeviceProcAddr:                     vk.ProcGetDeviceProcAddr,
 	GetPhysicalDeviceProperties:           vk.ProcGetPhysicalDeviceProperties,
 	GetPhysicalDeviceMemoryProperties:     vk.ProcGetPhysicalDeviceMemoryProperties,
 	AllocateMemory:                        vk.ProcAllocateMemory,

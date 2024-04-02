@@ -30,12 +30,16 @@ when ODIN_OS == .Windows {
 		"system:MSVCRT.lib",
 		"system:libcmt.lib",
 	}
-
 }
 
 when ODIN_OS == .Linux do foreign import VulkanMemoryAllocator {
     "externals:vma/libVulkanMemoryAllocator.a",
     "system:stdc++",
+}
+
+when ODIN_OS == .Darwin do foreign import VulkanMemoryAllocator {
+	"externals:vma/darwin_arm64/libVulkanMemoryAllocator.a",
+	"system:stdc++",
 }
 
 create_vulkan_functions :: proc() -> VulkanFunctions {

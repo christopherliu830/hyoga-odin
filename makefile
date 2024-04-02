@@ -1,9 +1,15 @@
 UNAME := $(shell uname)
 
+# Project Properties
 PROJECT_NAME = hyoga
 OUT_DIR = build
-RELEXE = ${OUT_DIR}/${PROJECT_NAME}.exe
-DBGEXE = ${OUT_DIR}/${PROJECT_NAME}d.exe
+ifeq (${UNAME}, Darwin)
+	RELEXE = ${OUT_DIR}/${PROJECT_NAME}
+	DBGEXE = ${OUT_DIR}/${PROJECT_NAME}d
+else
+	RELEXE = ${OUT_DIR}/${PROJECT_NAME}.exe
+	DBGEXE = ${OUT_DIR}/${PROJECT_NAME}d.exe
+endif
 
 VULKAN_DIR = ${VULKAN_SDK}
 

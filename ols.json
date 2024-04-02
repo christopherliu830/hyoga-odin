@@ -2,14 +2,6 @@
     "$schema": "https://raw.githubusercontent.com/DanielGavin/ols/master/misc/ols.schema.json",
     "collections": [
         {
-            "name": "core",
-            "path": "c:/Users/chris/code/odin-windows-amd64-dev-2023-08/core"
-        },
-        {
-            "name": "vendor",
-            "path": "C:/Users/chris/code/odin-windows-amd64-dev-2023-08/vendor"
-        },
-        {
             "name": "externals",
             "path": "externals"
         },

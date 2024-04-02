@@ -15,10 +15,7 @@ device_create :: proc(gpu: vk.PhysicalDevice, q_idxs: [QueueFamily]int ) ->
     }
 
     n_exts := len(extensions)
-    if !device_find_portability(gpu) {
-        n_exts -= 1
-    }
-
+    if !device_find_portability(gpu) do n_exts -= 1 
     log.infof("Enabling Extensions: %s", extensions[:n_exts])
 
     queue_infos := [len(QueueFamily)]vk.DeviceQueueCreateInfo {}
